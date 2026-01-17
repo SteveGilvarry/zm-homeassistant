@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urljoin
 
 import aiohttp
 
@@ -57,6 +56,18 @@ class ZoneMinerAPI:
         self._auth_token: str | None = None
         self._authenticated = False
 
+    def _build_url(self, endpoint: str) -> str:
+        """Build full URL from host and endpoint.
+
+        Args:
+            endpoint: API endpoint path (relative, no leading slash)
+
+        Returns:
+            Full URL
+
+        """
+        return f"{self._host}/{endpoint}"
+
     async def authenticate(self) -> bool:
         """Authenticate with ZoneMinder.
 
@@ -68,7 +79,7 @@ class ZoneMinerAPI:
             ZMConnectionError: If connection to server fails
 
         """
-        url = urljoin(self._host, API_LOGIN)
+        url = self._build_url(API_LOGIN)
         data = {
             "username": self._username,
             "password": self._password,
@@ -79,9 +90,22 @@ class ZoneMinerAPI:
                 url,
                 data=data,
                 timeout=self._timeout,
+                allow_redirects=True,
             ) as response:
                 if response.status == 401:
                     raise ZMAuthenticationError("Invalid username or password")
+
+                if response.status == 404:
+                    # Try to provide helpful error message
+                    text = await response.text()
+                    raise ZMConnectionError(
+                        f"API endpoint not found (404). "
+                        f"Please check:\n"
+                        f"  1. ZoneMinder is installed and running\n"
+                        f"  2. API is enabled in ZM settings\n"
+                        f"  3. Host URL is correct: {self._host}\n"
+                        f"  Response: {text[:200]}"
+                    )
 
                 response.raise_for_status()
                 result = await response.json()
@@ -107,7 +131,7 @@ class ZoneMinerAPI:
             return
 
         try:
-            url = urljoin(self._host, API_LOGOUT)
+            url = self._build_url(API_LOGOUT)
             async with self._session.get(
                 url,
                 params={"token": self._auth_token},
@@ -145,7 +169,7 @@ class ZoneMinerAPI:
         if not self._authenticated:
             await self.authenticate()
 
-        url = urljoin(self._host, endpoint)
+        url = self._build_url(endpoint)
 
         # Add auth token to request
         params = kwargs.pop("params", {})

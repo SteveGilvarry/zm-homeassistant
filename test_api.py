@@ -44,10 +44,15 @@ if env_file.exists():
                 os.environ[key.strip()] = value.strip()
 
 # Add custom_components to path
-sys.path.insert(0, "custom_components/zoneminder")
+sys.path.insert(0, str(Path(__file__).parent))
 
-from api import ZoneMinerAPI
-from exceptions import ZMAuthenticationError, ZMConnectionError, ZMApiError
+# Import from the package
+from custom_components.zoneminder.api import ZoneMinerAPI
+from custom_components.zoneminder.exceptions import (
+    ZMAuthenticationError,
+    ZMConnectionError,
+    ZMApiError,
+)
 
 
 async def test_api(host: str, username: str, password: str):

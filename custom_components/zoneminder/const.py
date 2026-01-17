@@ -15,20 +15,20 @@ DEFAULT_TIMEOUT: Final = 10
 DEFAULT_SCAN_INTERVAL: Final = timedelta(seconds=30)
 MQTT_SCAN_INTERVAL: Final = timedelta(minutes=5)  # When MQTT is active
 
-# API endpoints
-API_LOGIN: Final = "/api/host/login.json"
-API_LOGOUT: Final = "/api/host/logout.json"
-API_VERSION: Final = "/api/host/getVersion.json"
-API_MONITORS: Final = "/api/monitors.json"
-API_MONITOR: Final = "/api/monitors/{monitor_id}.json"
-API_EVENTS: Final = "/api/events.json"
-API_EVENT: Final = "/api/events/{event_id}.json"
-API_ALARM_ON: Final = "/api/monitors/alarm/id:{monitor_id}/command:on.json"
-API_ALARM_OFF: Final = "/api/monitors/alarm/id:{monitor_id}/command:off.json"
+# API endpoints (relative paths - will be joined with host)
+API_LOGIN: Final = "api/host/login.json"
+API_LOGOUT: Final = "api/host/logout.json"
+API_VERSION: Final = "api/host/getVersion.json"
+API_MONITORS: Final = "api/monitors.json"
+API_MONITOR: Final = "api/monitors/{monitor_id}.json"
+API_EVENTS: Final = "api/events.json"
+API_EVENT: Final = "api/events/{event_id}.json"
+API_ALARM_ON: Final = "api/monitors/alarm/id:{monitor_id}/command:on.json"
+API_ALARM_OFF: Final = "api/monitors/alarm/id:{monitor_id}/command:off.json"
 
-# Stream paths
-STREAM_PATH: Final = "/zm/cgi-bin/nph-zms"
-EVENT_VIDEO_PATH: Final = "/api/events/{event_id}.mp4"
+# Stream paths (relative paths - will be joined with host)
+STREAM_PATH: Final = "cgi-bin/nph-zms"
+EVENT_VIDEO_PATH: Final = "api/events/{event_id}.mp4"
 
 # Event types
 EVENT_TYPE_MOTION: Final = "Motion"
