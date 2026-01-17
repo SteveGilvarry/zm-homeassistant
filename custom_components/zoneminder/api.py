@@ -260,27 +260,36 @@ class ZoneMinerAPI:
             limit: Maximum number of events to return
 
         Returns:
-            List of Event objects
+            List of Event objects (empty list if events API is unavailable)
 
         """
-        params: dict[str, Any] = {"limit": limit, "sort": "StartTime", "order": "desc"}
+        params: dict[str, Any] = {"limit": limit}
 
         if monitor_id is not None:
             params["MonitorId"] = monitor_id
 
-        response = await self._request("GET", API_EVENTS, params=params)
-        events = []
+        try:
+            response = await self._request("GET", API_EVENTS, params=params)
+            events = []
 
-        for event_data in response.get("events", []):
-            try:
-                event = Event.from_dict(event_data)
-                events.append(event)
-            except (KeyError, ValueError) as err:
-                _LOGGER.warning("Failed to parse event data: %s", err)
-                continue
+            for event_data in response.get("events", []):
+                try:
+                    event = Event.from_dict(event_data)
+                    events.append(event)
+                except (KeyError, ValueError) as err:
+                    _LOGGER.warning("Failed to parse event data: %s", err)
+                    continue
 
-        _LOGGER.debug("Found %d events", len(events))
-        return events
+            _LOGGER.debug("Found %d events", len(events))
+            return events
+
+        except (ZMConnectionError, ZMApiError) as err:
+            # Events API may be broken on some ZM installations
+            # Return empty list and log warning
+            _LOGGER.warning(
+                "Events API unavailable (this is a ZM server issue): %s", err
+            )
+            return []
 
     async def get_event(self, event_id: int) -> Event:
         """Get single event details.
