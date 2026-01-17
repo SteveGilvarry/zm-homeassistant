@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # Home Assistant for testing the integration
+  homeassistant:
+    container_name: zmha-homeassistant
+    image: homeassistant/home-assistant:latest
+    volumes:
+      - ./ha_config:/config
+      - ./custom_components/zoneminder:/config/custom_components/zoneminder
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8123:8123"
+    restart: unless-stopped
+    privileged: true
+    networks:
+      - zmha-network
+
+  # MQTT Broker for ZoneMinder events
+  mosquitto:
+    container_name: zmha-mosquitto
+    image: eclipse-mosquitto:latest
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    restart: unless-stopped
+    networks:
+      - zmha-network
+
+networks:
+  zmha-network:
+    driver: bridge

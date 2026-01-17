@@ -2,9 +2,18 @@
 """Test script for ZoneMinder API client.
 
 Usage:
+    # Using environment variables (recommended):
+    python test_api.py
+
+    # Using command line arguments:
     python test_api.py <zm_host> <username> <password>
 
-Example:
+Setup:
+    1. Copy .env.example to .env
+    2. Fill in your ZoneMinder credentials
+    3. Run: python test_api.py
+
+Example with args:
     python test_api.py http://zm.local:8080 admin secretpass
 
 This script will:
@@ -17,10 +26,22 @@ This script will:
 """
 
 import asyncio
+import os
 import sys
+from pathlib import Path
 from pprint import pprint
 
 import aiohttp
+
+# Load environment variables from .env file if it exists
+env_file = Path(__file__).parent / ".env"
+if env_file.exists():
+    with open(env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ[key.strip()] = value.strip()
 
 # Add custom_components to path
 sys.path.insert(0, "custom_components/zoneminder")
@@ -155,15 +176,28 @@ async def test_api(host: str, username: str, password: str):
 
 def main():
     """Main entry point."""
-    if len(sys.argv) != 4:
-        print("Usage: python test_api.py <zm_host> <username> <password>")
-        print("\nExample:")
-        print("  python test_api.py http://zm.local:8080 admin secretpass")
-        sys.exit(1)
+    # Try to get credentials from command line args first
+    if len(sys.argv) == 4:
+        host = sys.argv[1]
+        username = sys.argv[2]
+        password = sys.argv[3]
+    else:
+        # Fall back to environment variables
+        host = os.getenv("ZM_HOST")
+        username = os.getenv("ZM_USERNAME")
+        password = os.getenv("ZM_PASSWORD")
 
-    host = sys.argv[1]
-    username = sys.argv[2]
-    password = sys.argv[3]
+        if not all([host, username, password]):
+            print("Error: Missing credentials!")
+            print("\nOption 1 - Use environment variables:")
+            print("  1. Copy .env.example to .env")
+            print("  2. Fill in your credentials")
+            print("  3. Run: python test_api.py")
+            print("\nOption 2 - Use command line:")
+            print("  python test_api.py <zm_host> <username> <password>")
+            print("\nExample:")
+            print("  python test_api.py http://zm.local:8080 admin secretpass")
+            sys.exit(1)
 
     # Run the async test
     asyncio.run(test_api(host, username, password))
