@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to ZoneMinder",
+        "description": "Enter your ZoneMinder server details. The integration will automatically discover your monitors.",
+        "data": {
+          "host": "Server URL (e.g., http://zm.local or https://zm.example.com/zm)",
+          "username": "Username",
+          "password": "Password",
+          "mqtt_enabled": "Enable MQTT for real-time events (ZM 1.37+ required)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate with ZoneMinder",
+        "description": "Your ZoneMinder credentials need to be updated.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to ZoneMinder. Please check the server URL and ensure ZoneMinder is running.",
+      "invalid_auth": "Invalid username or password. Please check your credentials.",
+      "api_error": "ZoneMinder API error. Please check that the API is enabled in ZoneMinder settings.",
+      "unknown": "An unexpected error occurred. Please check the logs for more details."
+    },
+    "abort": {
+      "already_configured": "This ZoneMinder server is already configured.",
+      "reauth_successful": "Re-authentication successful!"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ZoneMinder Options",
+        "description": "Configure MQTT and polling settings.",
+        "data": {
+          "mqtt_enabled": "Enable MQTT for real-time events",
+          "mqtt_topic": "MQTT topic prefix",
+          "scan_interval": "Polling interval (seconds, when MQTT disabled)"
+        }
+      }
+    }
+  }
+}
