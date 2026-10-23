@@ -1,4 +1,10 @@
 # Test dependencies. Install with:
 #   pip install -r requirements_test.txt
-pytest-homeassistant-custom-component==0.13.316
+# Home Assistant 2026.10.2
+pytest-homeassistant-custom-component==0.13.373
 aioresponses>=0.7.6
+pytest-timeout
+# Imported by HA's camera and stream components, which the tests load.
+PyTurboJPEG==1.8.3
+av==19.0.0
+ha-ffmpeg==3.2.2

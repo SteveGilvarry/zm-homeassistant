@@ -12,6 +12,10 @@ from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .models import Monitor
 
+#: HA 2026.8 links devices by registry id and rejects the old identifier
+#: tuple. Older releases only understand the tuple.
+_LINK_BY_ID = "via_device_id" in DeviceInfo.__annotations__
+
 
 def server_device_id(entry: ZoneMinderConfigEntry) -> str:
     """Return the device registry identifier for the ZoneMinder server."""
@@ -98,13 +102,19 @@ class ZoneMinderMonitorEntity(ZoneMinderEntity):
             name=monitor.name,
             manufacturer="ZoneMinder",
             model=monitor.type or "Monitor",
-            via_device=(DOMAIN, server_device_id(entry)),
             configuration_url=(
                 f"{web_url}/index.php?view=monitor&mid={monitor.id}"
                 if web_url
                 else None
             ),
         )
+        if _LINK_BY_ID:
+            if entry.runtime_data.server_device_id is not None:
+                self._attr_device_info["via_device_id"] = (
+                    entry.runtime_data.server_device_id
+                )
+        else:
+            self._attr_device_info["via_device"] = (DOMAIN, server_device_id(entry))
 
     @property
     def monitor_id(self) -> int:

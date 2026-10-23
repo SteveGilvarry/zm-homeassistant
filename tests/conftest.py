@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+import inspect
 import re
+from types import SimpleNamespace
 from typing import Any
 
-from aioresponses import CallbackResult, aioresponses
+from aiohttp import ClientResponse
+from aioresponses import CallbackResult, aioresponses, core as aioresponses_core
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -32,6 +35,18 @@ from .const import (
 )
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+if "stream_writer" in inspect.signature(ClientResponse.__init__).parameters:
+    # aiohttp 3.14 (HA 2026.10) added a required argument that aioresponses
+    # 0.7.9 doesn't pass. Its mocked responses have already been "sent", so
+    # a writer that reports nothing written is all it needs.
+
+    class _MockedResponse(ClientResponse):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs.setdefault("stream_writer", SimpleNamespace(output_size=0))
+            super().__init__(*args, **kwargs)
+
+    aioresponses_core.ClientResponse = _MockedResponse
 
 
 @pytest.fixture(autouse=True)

@@ -29,6 +29,8 @@ class ZoneMinderRuntimeData:
     #: (event id, "start" | "end") already handed to entities, newest last.
     published: OrderedDict[tuple[int, str], None] = field(default_factory=OrderedDict)
     ptz_presets: dict[int, dict[int, str]] = field(default_factory=dict)
+    #: Device registry id of the server device the cameras hang off.
+    server_device_id: str | None = None
 
 
 #: A config entry that has finished setting up carries its runtime data.

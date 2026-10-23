@@ -17,7 +17,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    issue_registry as ir,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
@@ -34,7 +38,7 @@ from .const import (
 )
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry, ZoneMinderRuntimeData
-from .entity import monitor_device_id, server_device_id
+from .entity import monitor_device_id, server_device_id, server_device_info
 from .event_watcher import ZoneMinderEventWatcher
 from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
 from .frontend import async_register_card
@@ -133,6 +137,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -
     entry.runtime_data = ZoneMinderRuntimeData(
         coordinator=coordinator,
         proxy_secret=generate_proxy_secret(),
+    )
+
+    # Register the server first, so cameras can link to it by its registry id.
+    entry.runtime_data.server_device_id = (
+        dr.async_get(hass)
+        .async_get_or_create(
+            config_entry_id=entry.entry_id,
+            **server_device_info(entry, coordinator.data.server.version),
+        )
+        .id
     )
 
     if coordinator.api.backend == BACKEND_V3:

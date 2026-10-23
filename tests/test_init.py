@@ -67,20 +67,27 @@ async def test_no_setup_notification(
     notify.assert_not_called()
 
 
+def _device(
+    devices: dr.DeviceRegistry, entry: MockConfigEntry, identifier: str
+) -> dr.DeviceEntry | None:
+    """Look a device up the way the running Home Assistant wants."""
+    if hasattr(devices, "async_get_device_by_identifier"):  # 2026.10+
+        return devices.async_get_device_by_identifier(
+            (DOMAIN, identifier), entry.entry_id
+        )
+    return devices.async_get_device(identifiers={(DOMAIN, identifier)})
+
+
 async def test_monitors_hang_off_a_server_device(
     hass: HomeAssistant, setup_integration: MockConfigEntry
 ) -> None:
     """Each monitor is a device linked to the ZoneMinder server device."""
     devices = dr.async_get(hass)
-    server = devices.async_get_device(
-        identifiers={(DOMAIN, setup_integration.entry_id)}
-    )
+    server = _device(devices, setup_integration, setup_integration.entry_id)
     assert server is not None
     assert server.model == "ZoneMinder server"
 
-    monitor = devices.async_get_device(
-        identifiers={(DOMAIN, f"{setup_integration.entry_id}_1")}
-    )
+    monitor = _device(devices, setup_integration, f"{setup_integration.entry_id}_1")
     assert monitor is not None
     assert monitor.name == "Driveway"
     assert monitor.via_device_id == server.id
@@ -104,8 +111,8 @@ async def test_only_stale_devices_can_be_removed(
     deleted = devices.async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, f"{entry.entry_id}_99")}
     )
-    live = devices.async_get_device(identifiers={(DOMAIN, f"{entry.entry_id}_1")})
-    server = devices.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    live = _device(devices, entry, f"{entry.entry_id}_1")
+    server = _device(devices, entry, entry.entry_id)
 
     assert await async_remove_config_entry_device(hass, entry, stale)
     assert await async_remove_config_entry_device(hass, entry, deleted)
