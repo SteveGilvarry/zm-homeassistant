@@ -1,670 +1,1198 @@
-import { LitElement, html, css, PropertyValues } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
-import { HomeAssistant, ZoneMinerCardConfig, MonitorConfig } from './types';
-import './webrtc-player';
+import { LitElement, html, css, nothing, PropertyValues, svg } from "lit";
+import { property, state, query } from "lit/decorators.js";
+import type {
+  HomeAssistant,
+  HassEntity,
+  ZoneMinderCardConfig,
+  ZmEvent,
+  ZmEventWindow,
+} from "./types";
 
-// Window interface extension for card registration
 declare global {
   interface Window {
-    customCards?: any[];
+    customCards?: Array<Record<string, unknown>>;
+    loadCardHelpers?: () => Promise<any>;
   }
 }
 
-// Register card with Home Assistant
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'zoneminder-card',
-  name: 'ZoneMinder Card',
-  description: 'Display ZoneMinder cameras with direct go2rtc WebRTC streaming',
-  preview: false,
-  documentationURL: 'https://github.com/yourusername/zoneminder-card',
-});
+const DOMAIN = "zoneminder";
+const DEFAULT_HOURS = 24;
+const REFRESH_MS = 60_000;
+/** Clips closer together than this play on as one recording. */
+const JOIN_GAP_MS = 5_000;
+const SPEEDS = [1, 4, 16];
 
-@customElement('zoneminder-card')
-export class ZoneMinerCard extends LitElement {
-  @property({ attribute: false }) public hass!: HomeAssistant;
-  @state() private _config!: ZoneMinerCardConfig;
-  @state() private _go2rtcUrl = '';
-  @state() private _editMode = false;
-  @state() private _draggedIndex: number | null = null;
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
-  static styles = css`
-    :host {
-      display: block;
-      padding: 16px;
+let fontRequested = false;
+/** Barlow Semi Condensed is in the brief; the system face stands in if it can't load. */
+function requestFont(): void {
+  if (fontRequested) return;
+  fontRequested = true;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href =
+    "https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&display=swap";
+  document.head.appendChild(link);
+}
+
+let cameraStreamLoad: Promise<void> | undefined;
+/**
+ * `ha-camera-stream` is part of Home Assistant's frontend but loads lazily.
+ * Building a picture-entity card pulls it in without us bundling a copy.
+ */
+function loadCameraStream(entity: string): Promise<void> {
+  if (customElements.get("ha-camera-stream")) return Promise.resolve();
+  cameraStreamLoad ??= (async () => {
+    const helpers = await window.loadCardHelpers?.();
+    const card = await helpers?.createCardElement({
+      type: "picture-entity",
+      entity,
+      camera_view: "live",
+    });
+    card?.remove?.();
+    await customElements.whenDefined("ha-camera-stream");
+  })();
+  return cameraStreamLoad;
+}
+
+/** Whether a live player (in any shadow root below `root`) has frames on screen. */
+function playingVideo(root: Element): boolean {
+  const stack: Array<Element | ShadowRoot> = [root];
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (
+      node instanceof HTMLVideoElement &&
+      node.readyState >= 2 &&
+      node.videoWidth > 0
+    ) {
+      return true;
     }
-
-    .card-header {
-      font-size: 24px;
-      font-weight: 400;
-      padding: 0 0 16px 0;
-      color: var(--primary-text-color);
-      font-family: var(--paper-font-headline_-_font-family);
-    }
-
-    .grid {
-      display: grid;
-      gap: 8px;
-      width: 100%;
-      grid-auto-flow: dense;
-    }
-
-    .monitor {
-      position: relative;
-      background: #000;
-      border-radius: 4px;
-      overflow: hidden;
-      width: 100%;
-    }
-
-    .monitor.motion-active {
-      outline: 3px solid var(--error-color, #ff5252);
-      outline-offset: -3px;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        outline-color: var(--error-color, #ff5252);
-      }
-      50% {
-        outline-color: rgba(255, 82, 82, 0.5);
-      }
-    }
-
-    .monitor-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      pointer-events: none;
-      z-index: 10;
-    }
-
-    .motion-indicator {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      background: var(--error-color, #ff5252);
-      color: white;
-      padding: 4px 12px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-      animation: fadeIn 0.3s ease-in-out;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(-4px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .motion-dot {
-      width: 8px;
-      height: 8px;
-      background: white;
-      border-radius: 50%;
-      animation: blink 1s ease-in-out infinite;
-    }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
-
-    .monitor-name {
-      position: absolute;
-      bottom: 8px;
-      left: 8px;
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 14px;
-      font-weight: 500;
-    }
-
-    .controls {
-      position: absolute;
-      bottom: 8px;
-      right: 8px;
-      display: flex;
-      gap: 4px;
-      pointer-events: auto;
-    }
-
-    .control-button {
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      border: none;
-      border-radius: 4px;
-      padding: 8px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .control-button:hover {
-      background: rgba(0, 0, 0, 0.9);
-    }
-
-    .control-button:active {
-      transform: scale(0.95);
-    }
-
-    webrtc-player {
-      width: 100%;
-      height: 100%;
-    }
-
-    .error {
-      padding: 16px;
-      background: var(--error-color, #ff5252);
-      color: white;
-      border-radius: 4px;
-      margin-bottom: 16px;
-    }
-
-    .warning {
-      padding: 16px;
-      background: var(--warning-color, #ff9800);
-      color: white;
-      border-radius: 4px;
-      margin-bottom: 16px;
-    }
-
-    .header-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-
-    .edit-toggle {
-      background: var(--primary-color, #03a9f4);
-      color: white;
-      border: none;
-      border-radius: 4px;
-      padding: 8px 16px;
-      font-size: 14px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .edit-toggle:hover {
-      background: var(--primary-color-dark, #0288d1);
-    }
-
-    .edit-toggle.active {
-      background: var(--success-color, #4caf50);
-    }
-
-    .monitor.edit-mode {
-      cursor: grab;
-      outline: 2px dashed var(--primary-color, #03a9f4);
-      outline-offset: 2px;
-    }
-
-    .monitor.edit-mode:hover {
-      outline-color: var(--accent-color, #ff9800);
-    }
-
-    .monitor.dragging {
-      opacity: 0.5;
-      cursor: grabbing;
-    }
-
-    .monitor.drag-over {
-      outline: 3px solid var(--accent-color, #ff9800);
-      outline-offset: 2px;
-    }
-  `;
-
-  public setConfig(config: ZoneMinerCardConfig): void {
-    if (!config.monitors || config.monitors.length === 0) {
-      throw new Error('You must specify at least one monitor');
-    }
-
-    // Apply default config
-    let monitors = config.monitors;
-
-    // Try to restore saved monitor order from localStorage
-    const savedOrder = this._loadMonitorOrder(config.monitors);
-    if (savedOrder) {
-      monitors = savedOrder;
-    }
-
-    this._config = {
-      columns: 4,  // Even number for portrait/landscape spanning
-      aspect_ratio: '16:9',
-      streaming_mode: 'webrtc',
-      show_motion_indicator: true,
-      show_controls: false,
-      refresh_interval: 1000,
-      click_action: 'fullscreen',
-      ...config,
-      monitors,
-    };
+    if (node instanceof Element && node.shadowRoot) stack.push(node.shadowRoot);
+    stack.push(...Array.from(node.children));
   }
+  return false;
+}
 
-  private _getStorageKey(monitors: MonitorConfig[]): string {
-    // Create a unique key based on the monitor entities (sorted for consistency)
-    const entities = monitors.map(m => m.entity).sort().join(',');
-    return `zoneminder-card-order:${entities}`;
-  }
+function zoneminderCameras(hass: HomeAssistant): string[] {
+  return Object.values(hass.entities ?? {})
+    .filter((e) => e.platform === DOMAIN && e.entity_id.startsWith("camera."))
+    .map((e) => e.entity_id)
+    .filter((id) => hass.states[id])
+    .sort((a, b) => name(hass.states[a]).localeCompare(name(hass.states[b])));
+}
 
-  private _loadMonitorOrder(originalMonitors: MonitorConfig[]): MonitorConfig[] | null {
-    try {
-      const key = this._getStorageKey(originalMonitors);
-      const saved = localStorage.getItem(key);
-      if (!saved) return null;
+function name(state: HassEntity | undefined): string {
+  return state?.attributes.friendly_name ?? state?.entity_id ?? "";
+}
 
-      const savedEntities: string[] = JSON.parse(saved);
+function motionEntity(
+  hass: HomeAssistant,
+  cameraId: string,
+): string | undefined {
+  const device = hass.entities?.[cameraId]?.device_id;
+  if (!device) return undefined;
+  return Object.values(hass.entities).find(
+    (e) =>
+      e.device_id === device &&
+      e.platform === DOMAIN &&
+      e.entity_id.startsWith("binary_sensor.") &&
+      e.translation_key === "motion",
+  )?.entity_id;
+}
 
-      // Validate saved order has same entities
-      const originalEntities = new Set(originalMonitors.map(m => m.entity));
-      const savedSet = new Set(savedEntities);
-      if (originalEntities.size !== savedSet.size) return null;
-      for (const entity of originalEntities) {
-        if (!savedSet.has(entity)) return null;
-      }
+interface Clip {
+  event: ZmEvent;
+  start: number;
+  end: number;
+}
 
-      // Reorder monitors based on saved order
-      const monitorMap = new Map(originalMonitors.map(m => [m.entity, m]));
-      return savedEntities.map(entity => monitorMap.get(entity)!);
-    } catch {
-      return null;
+interface Band {
+  start: number;
+  end: number;
+}
+
+function toClips(events: ZmEvent[], now: number): Clip[] {
+  return events.map((event) => {
+    const start = Date.parse(event.start);
+    const end = event.end
+      ? Date.parse(event.end)
+      : event.in_progress
+        ? now
+        : start + event.length * 1000;
+    return { event, start, end: Math.max(end, start + 1000) };
+  });
+}
+
+function toBands(clips: Clip[]): Band[] {
+  const bands: Band[] = [];
+  for (const clip of clips) {
+    const last = bands[bands.length - 1];
+    if (last && clip.start - last.end <= JOIN_GAP_MS) {
+      last.end = Math.max(last.end, clip.end);
+    } else {
+      bands.push({ start: clip.start, end: clip.end });
     }
   }
+  return bands;
+}
 
-  private _saveMonitorOrder(monitors: MonitorConfig[]): void {
-    try {
-      const key = this._getStorageKey(monitors);
-      const entities = monitors.map(m => m.entity);
-      localStorage.setItem(key, JSON.stringify(entities));
-    } catch {
-      // Ignore storage errors
+class Clock {
+  private time: Intl.DateTimeFormat;
+  private hour: Intl.DateTimeFormat;
+  private hourNumber: Intl.DateTimeFormat;
+  private day: Intl.DateTimeFormat;
+  private dayKey: Intl.DateTimeFormat;
+
+  constructor(hass: HomeAssistant) {
+    const timeZone = hass.config?.time_zone;
+    const locale = hass.locale?.language ?? navigator.language;
+    const hour12 =
+      hass.locale?.time_format === "12"
+        ? true
+        : hass.locale?.time_format === "24"
+          ? false
+          : undefined;
+    this.time = new Intl.DateTimeFormat(locale, {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12,
+    });
+    this.hour = new Intl.DateTimeFormat(locale, {
+      timeZone,
+      hour: "numeric",
+      hour12,
+    });
+    this.hourNumber = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      hour12: false,
+    });
+    this.day = new Intl.DateTimeFormat(locale, { timeZone, weekday: "short" });
+    this.dayKey = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  }
+
+  formatTime(t: number): string {
+    return this.time.format(t);
+  }
+
+  /** Time with the weekday when it isn't today. */
+  formatMoment(t: number): string {
+    const sameDay = this.dayKey.format(t) === this.dayKey.format(Date.now());
+    return sameDay
+      ? this.formatTime(t)
+      : `${this.day.format(t)} ${this.formatTime(t)}`;
+  }
+
+  /** Hour marks every six local hours; midnight is named by its day. */
+  ticks(
+    start: number,
+    end: number,
+  ): Array<{ t: number; label: string; midnight: boolean }> {
+    const out: Array<{ t: number; label: string; midnight: boolean }> = [];
+    const hourMs = 3_600_000;
+    for (let t = Math.ceil(start / hourMs) * hourMs; t <= end; t += hourMs) {
+      const h = Number(this.hourNumber.format(t)) % 24;
+      if (h % 6 !== 0) continue;
+      out.push({
+        t,
+        label: h === 0 ? this.day.format(t) : this.hour.format(t),
+        midnight: h === 0,
+      });
+    }
+    return out;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Visual tokens
+// ---------------------------------------------------------------------------
+
+const tokens = css`
+  :host {
+    --zm-asphalt: #182026;
+    --zm-kerb: #232c33;
+    --zm-concrete: #7e8890;
+    --zm-fog: #e3e7e9;
+    --zm-tape: #3e6e8c;
+    --zm-sodium: #f0a23b;
+    --zm-font:
+      "Barlow Semi Condensed", "Roboto Condensed", system-ui, sans-serif;
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// One camera
+// ---------------------------------------------------------------------------
+
+export class ZmCameraTile extends LitElement {
+  @property({ attribute: false }) hass!: HomeAssistant;
+  @property() entity = "";
+  @property() label?: string;
+  @property({ type: Number }) hours = DEFAULT_HOURS;
+  @property({ type: Boolean }) ptz = true;
+
+  @state() private visible = false;
+  @state() private streamReady = false;
+  /** True once the live player is showing real frames. */
+  @state() private liveShowing = false;
+  @state() private window?: ZmEventWindow;
+  @state() private error?: string;
+  /** Set while a recording plays instead of the live view. */
+  @state() private playing?: { clip: Clip; at: number };
+  @state() private paused = false;
+  @state() private speed = 1;
+  @state() private hover?: { t: number; x: number; clip?: Clip };
+  /** Keyboard cursor on the strip, while it has focus. */
+  @state() private cursor?: number;
+
+  @query("video.playback") private recordingVideo?: HTMLVideoElement;
+
+  private observer?: IntersectionObserver;
+  private refreshTimer?: number;
+  private lastMotion?: string;
+  private seekOnLoad?: number;
+  private livePoll?: number;
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.observer = new IntersectionObserver(
+      ([entry]) => {
+        this.visible = entry.isIntersecting;
+        if (this.visible && !this.window) this.load();
+      },
+      { rootMargin: "200px" },
+    );
+    this.observer.observe(this);
+    this.refreshTimer = window.setInterval(
+      () => this.visible && this.load(),
+      REFRESH_MS,
+    );
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.observer?.disconnect();
+    window.clearInterval(this.refreshTimer);
+    window.clearInterval(this.livePoll);
+  }
+
+  protected willUpdate(changed: PropertyValues): void {
+    if (changed.has("hass") && this.hass) {
+      // A motion event that just ended is a new recording worth showing.
+      const motion = this.motionState;
+      if (this.lastMotion === "on" && motion === "off") this.load();
+      this.lastMotion = motion;
+    }
+    if (changed.has("visible") && this.visible && !this.streamReady) {
+      loadCameraStream(this.entity).then(() => (this.streamReady = true));
     }
   }
 
-  public getCardSize(): number {
-    const rows = Math.ceil((this._config?.monitors?.length || 1) / (this._config?.columns || 2));
-    return rows * 3; // Each row is roughly 3 units
-  }
-
-  protected updated(changedProperties: PropertyValues): void {
-    super.updated(changedProperties);
-
-    if (changedProperties.has('hass') && this.hass) {
-      this._detectGo2rtcUrl();
-    }
-  }
-
-  /**
-   * Determine if a camera is portrait orientation (rotated 90 or 270 degrees)
-   */
-  private _isPortraitCamera(cameraEntity: any): boolean {
-    const orientation = cameraEntity?.attributes?.orientation || 'ROTATE_0';
-    const normalized = this._normalizeOrientation(orientation);
-    return normalized === 'ROTATE_90' || normalized === 'ROTATE_270';
-  }
-
-  /**
-   * Get the column span for a monitor based on orientation
-   * Portrait cameras span 1 column, landscape cameras span 2 columns
-   */
-  private _getColumnSpan(monitorConfig: MonitorConfig): number {
-    // Allow explicit override in monitor config
-    if (monitorConfig.columns) {
-      return monitorConfig.columns;
-    }
-
-    const cameraEntity = this.hass?.states[monitorConfig.entity];
-    if (!cameraEntity) return 1;
-
-    // Portrait = 1 column, Landscape = 2 columns
-    return this._isPortraitCamera(cameraEntity) ? 1 : 2;
-  }
-
-  render() {
-    if (!this._config || !this.hass) {
-      return html``;
-    }
-
-    if (!this._go2rtcUrl) {
-      return html`
-        <div class="warning">
-          <strong>Warning:</strong> go2rtc URL not configured or auto-detected.<br />
-          Please configure <code>zoneminder_go2rtc_url</code> in card configuration.
-        </div>
-      `;
-    }
-
-    const columns = this._config.columns || 4;
-
-    return html`
-      <div class="header-row">
-        <div class="card-header" style="padding: 0; margin: 0;">
-          ${this._config.title || ''}
-        </div>
-        <button
-          class="edit-toggle ${this._editMode ? 'active' : ''}"
-          @click=${this._toggleEditMode}
-        >
-          ${this._editMode ? 'Done' : 'Edit Layout'}
-        </button>
-      </div>
-      <div class="grid" style="grid-template-columns: repeat(${columns}, 1fr)">
-        ${this._config.monitors.map((monitor, index) => this._renderMonitor(monitor, index))}
-      </div>
-    `;
-  }
-
-  private _toggleEditMode(): void {
-    this._editMode = !this._editMode;
-    if (!this._editMode) {
-      this._draggedIndex = null;
-    }
-  }
-
-  private _renderMonitor(monitorConfig: MonitorConfig, index: number) {
-    const cameraEntity = this.hass.states[monitorConfig.entity];
-    const columnSpan = this._getColumnSpan(monitorConfig);
-    const isDragging = this._draggedIndex === index;
-
-    if (!cameraEntity) {
-      // No aspect ratio for error state - let it auto-size
-      return html`
-        <div
-          class="monitor ${this._editMode ? 'edit-mode' : ''}"
-          style="grid-column: span ${columnSpan}; min-height: 100px"
-          draggable=${this._editMode}
-          @dragstart=${(e: DragEvent) => this._handleDragStart(e, index)}
-          @dragover=${(e: DragEvent) => this._handleDragOver(e, index)}
-          @dragleave=${(e: DragEvent) => this._handleDragLeave(e)}
-          @drop=${(e: DragEvent) => this._handleDrop(e, index)}
-          @dragend=${this._handleDragEnd}
-        >
-          <div class="error" style="margin: 0; height: 100%; display: flex; align-items: center; justify-content: center;">
-            Entity ${monitorConfig.entity} not found
-          </div>
-        </div>
-      `;
-    }
-
-    // Get video dimensions from entity attributes
-    const videoWidth = Number(cameraEntity.attributes.width) || 0;
-    const videoHeight = Number(cameraEntity.attributes.height) || 0;
-
-    // Get orientation and determine if portrait
-    const rawOrientation = cameraEntity.attributes.orientation || 'ROTATE_0';
-    const orientation = this._normalizeOrientation(rawOrientation);
-    const isPortrait = this._isPortraitCamera(cameraEntity);
-
-    // Calculate aspect ratio based on dimensions and orientation
-    const aspectRatio = this._getAspectRatioCss(videoWidth, videoHeight, isPortrait);
-
-    // Get stream ID from config or entity attributes
-    const streamId =
-      monitorConfig.stream_id ||
-      cameraEntity.attributes.go2rtc_stream_id ||
-      cameraEntity.attributes.monitor_id;
-
-    if (!streamId) {
-      return html`
-        <div
-          class="monitor ${this._editMode ? 'edit-mode' : ''}"
-          style="grid-column: span ${columnSpan}; aspect-ratio: ${aspectRatio}"
-          draggable=${this._editMode}
-          @dragstart=${(e: DragEvent) => this._handleDragStart(e, index)}
-          @dragover=${(e: DragEvent) => this._handleDragOver(e, index)}
-          @dragleave=${(e: DragEvent) => this._handleDragLeave(e)}
-          @drop=${(e: DragEvent) => this._handleDrop(e, index)}
-          @dragend=${this._handleDragEnd}
-        >
-          <div class="error" style="margin: 0; height: 100%; display: flex; align-items: center; justify-content: center;">
-            No stream ID found for ${monitorConfig.entity}
-          </div>
-        </div>
-      `;
-    }
-
-    // Check for motion
-    const motionEntityId = monitorConfig.entity.replace('camera.', 'binary_sensor.') + '_motion';
-    const motionEntity = this.hass.states[motionEntityId];
-    const isMotion = motionEntity?.state === 'on';
-
-    // Get monitor name
-    const monitorName =
-      monitorConfig.name || cameraEntity.attributes.friendly_name || monitorConfig.entity;
-
-    // Build class list
-    const classes = ['monitor'];
-    if (isMotion) classes.push('motion-active');
-    if (this._editMode) classes.push('edit-mode');
-    if (isDragging) classes.push('dragging');
-
-    return html`
-      <div
-        class=${classes.join(' ')}
-        style="grid-column: span ${columnSpan}; aspect-ratio: ${aspectRatio}"
-        draggable=${this._editMode}
-        @dragstart=${(e: DragEvent) => this._handleDragStart(e, index)}
-        @dragover=${(e: DragEvent) => this._handleDragOver(e, index)}
-        @dragleave=${(e: DragEvent) => this._handleDragLeave(e)}
-        @drop=${(e: DragEvent) => this._handleDrop(e, index)}
-        @dragend=${this._handleDragEnd}
-        @click=${() => !this._editMode && this._handleClick(monitorConfig)}
-      >
-        <webrtc-player
-          .go2rtcUrl=${this._go2rtcUrl}
-          .streamId=${String(streamId)}
-          .mode=${this._config.streaming_mode || 'webrtc'}
-          .orientation=${orientation}
-          .videoWidth=${videoWidth}
-          .videoHeight=${videoHeight}
-        ></webrtc-player>
-
-        <div class="monitor-overlay">
-          ${this._config.show_motion_indicator && isMotion
-            ? html`
-                <div class="motion-indicator">
-                  <div class="motion-dot"></div>
-                  <span>Motion Detected</span>
-                </div>
-              `
-            : ''}
-
-          <div class="monitor-name">${monitorName}</div>
-
-          ${this._config.show_controls
-            ? html`
-                <div class="controls">
-                  <button
-                    class="control-button"
-                    @click=${(e: Event) => this._handleFullscreen(e, monitorConfig)}
-                    title="Fullscreen"
-                  >
-                    ⛶
-                  </button>
-                </div>
-              `
-            : ''}
-        </div>
-      </div>
-    `;
-  }
-
-  private _getAspectRatioCss(videoWidth: number, videoHeight: number, isPortrait: boolean): string {
-    // Always calculate from actual video dimensions
-    // For portrait cameras (rotated 90/270), swap width and height
-    if (isPortrait) {
-      return `${videoHeight} / ${videoWidth}`;
-    }
-    return `${videoWidth} / ${videoHeight}`;
-  }
-
-  private _normalizeOrientation(orientation: string): string {
-    // Normalize various orientation formats to ZoneMinder standard: ROTATE_0, ROTATE_90, ROTATE_180, ROTATE_270
-    switch (orientation) {
-      case 'ROTATE_90':
-      case 'Rotate Right':
-        return 'ROTATE_90';
-      case 'ROTATE_180':
-      case 'Inverted':
-        return 'ROTATE_180';
-      case 'ROTATE_270':
-      case 'Rotate Left':
-        return 'ROTATE_270';
-      case 'ROTATE_0':
-      case 'Normal':
-      default:
-        return 'ROTATE_0';
-    }
-  }
-
-  private _detectGo2rtcUrl(): void {
-    // Try to auto-detect go2rtc URL from integration
-    if (this._config.zoneminder_go2rtc_url) {
-      this._go2rtcUrl = this._config.zoneminder_go2rtc_url;
+  protected updated(): void {
+    const stream = this.renderRoot.querySelector("ha-camera-stream");
+    if (!stream) {
+      this.liveShowing = false;
+      window.clearInterval(this.livePoll);
+      this.livePoll = undefined;
       return;
     }
-
-    // Look for go2rtc URL in any camera entity attributes
-    for (const monitor of this._config.monitors) {
-      const entity = this.hass.states[monitor.entity];
-      if (entity?.attributes.go2rtc_url) {
-        this._go2rtcUrl = entity.attributes.go2rtc_url;
-        return;
+    if (this.liveShowing || this.livePoll) return;
+    // Until its video plays, the player shows ZoneMinder's still, which is
+    // already upright and would come out sideways in the turned layer. The
+    // still underneath covers that gap instead.
+    this.livePoll = window.setInterval(() => {
+      if (playingVideo(stream)) {
+        this.liveShowing = true;
+        window.clearInterval(this.livePoll);
+        this.livePoll = undefined;
       }
-    }
-
-    // Fallback: Try to find zoneminder integration data
-    // This would require the integration to expose go2rtc URL as a sensor or in device attributes
+    }, 300);
   }
 
-  private _handleClick(monitorConfig: MonitorConfig): void {
-    if (this._config.click_action === 'fullscreen') {
-      this._handleFullscreen(new Event('click'), monitorConfig);
-    } else if (this._config.click_action === 'events') {
-      // Navigate to events page (would need to implement)
-      this._navigateToEvents(monitorConfig);
-    }
-    // Default: do nothing (don't open more-info dialog with MPEG stream)
+  private get stateObj(): HassEntity | undefined {
+    return this.hass?.states[this.entity];
   }
 
-  private _handleFullscreen(e: Event, monitorConfig: MonitorConfig): void {
-    e.stopPropagation();
-    // TODO: Implement custom fullscreen view with WebRTC stream
-    // For now, do nothing to avoid opening the MPEG-based more-info dialog
-    console.log('Fullscreen requested for', monitorConfig.entity);
+  private get motionState(): string | undefined {
+    const id = motionEntity(this.hass, this.entity);
+    return id ? this.hass.states[id]?.state : undefined;
   }
 
-  // Drag and drop handlers
-  private _handleDragStart(e: DragEvent, index: number): void {
-    if (!this._editMode) return;
-    this._draggedIndex = index;
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(index));
-    }
-    // Add dragging class after a brief delay to allow the drag image to be created
-    requestAnimationFrame(() => {
-      this.requestUpdate();
-    });
+  private get clock(): Clock {
+    return new Clock(this.hass);
   }
 
-  private _handleDragOver(e: DragEvent, index: number): void {
-    if (!this._editMode || this._draggedIndex === null) return;
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'move';
-    }
-    // Add visual feedback for drag target
-    const target = e.currentTarget as HTMLElement;
-    if (index !== this._draggedIndex) {
-      target.classList.add('drag-over');
+  private async load(): Promise<void> {
+    try {
+      this.window = await this.hass.callWS<ZmEventWindow>({
+        type: "zoneminder/events",
+        entity_id: this.entity,
+        hours: this.hours,
+      });
+      this.error = undefined;
+    } catch (err: any) {
+      this.error = err?.message ?? String(err);
     }
   }
 
-  private _handleDragLeave(e: DragEvent): void {
-    const target = e.currentTarget as HTMLElement;
-    target.classList.remove('drag-over');
+  private get span(): { start: number; end: number } {
+    const end = Date.now();
+    return { start: end - this.hours * 3_600_000, end };
   }
 
-  private _handleDrop(e: DragEvent, targetIndex: number): void {
-    e.preventDefault();
-    if (!this._editMode || this._draggedIndex === null) return;
+  private get clips(): Clip[] {
+    return this.window ? toClips(this.window.events, Date.now()) : [];
+  }
 
-    const target = e.currentTarget as HTMLElement;
-    target.classList.remove('drag-over');
+  private clipAt(t: number): Clip | undefined {
+    return this.clips.find((c) => c.start <= t && t < c.end && c.event.video);
+  }
 
-    if (this._draggedIndex !== targetIndex) {
-      this._reorderMonitors(this._draggedIndex, targetIndex);
+  /** The clip covering `t`, or failing that the next one after it. */
+  private clipFrom(t: number): Clip | undefined {
+    return (
+      this.clipAt(t) ?? this.clips.find((c) => c.start > t && c.event.video)
+    );
+  }
+
+  // -- Playback ------------------------------------------------------------
+
+  private play(t: number): void {
+    const clip = this.clipFrom(t);
+    if (!clip) return;
+    const at = Math.max(t, clip.start);
+    const sameClip = this.playing?.clip.event.id === clip.event.id;
+    this.playing = { clip, at };
+    this.paused = false;
+    const offset = (at - clip.start) / 1000;
+    if (sameClip && this.recordingVideo) {
+      this.recordingVideo.currentTime = offset;
+      this.recordingVideo.play();
+    } else {
+      this.seekOnLoad = offset;
     }
-    this._draggedIndex = null;
   }
 
-  private _handleDragEnd(): void {
-    this._draggedIndex = null;
-    // Remove any lingering drag-over classes
-    const dragOverElements = this.shadowRoot?.querySelectorAll('.drag-over');
-    dragOverElements?.forEach(el => el.classList.remove('drag-over'));
-    this.requestUpdate();
+  private backToLive(): void {
+    this.playing = undefined;
+    this.paused = false;
   }
 
-  private _reorderMonitors(fromIndex: number, toIndex: number): void {
-    // Create a new monitors array with the reordered items
-    const monitors = [...this._config.monitors];
-    const [movedMonitor] = monitors.splice(fromIndex, 1);
-    monitors.splice(toIndex, 0, movedMonitor);
-
-    // Update config and dispatch event for Home Assistant to persist
-    const newConfig = { ...this._config, monitors };
-    this._config = newConfig;
-
-    // Save to localStorage for persistence across page refreshes
-    this._saveMonitorOrder(monitors);
-
-    // Dispatch config-changed event for HA to persist (works when dashboard is in edit mode)
-    const event = new CustomEvent('config-changed', {
-      detail: { config: newConfig },
-      bubbles: true,
-      composed: true,
-    });
-    this.dispatchEvent(event);
+  private onLoaded(ev: Event): void {
+    const video = ev.target as HTMLVideoElement;
+    if (this.seekOnLoad !== undefined) video.currentTime = this.seekOnLoad;
+    this.seekOnLoad = undefined;
+    video.playbackRate = this.speed;
+    video.play().catch(() => (this.paused = true));
   }
 
-  private _navigateToEvents(monitorConfig: MonitorConfig): void {
-    // TODO: Implement navigation to events
-    console.log('Navigate to events for', monitorConfig.entity);
-  }
-
-  static getConfigElement() {
-    return document.createElement('zoneminder-card-editor');
-  }
-
-  static getStubConfig() {
-    return {
-      type: 'custom:zoneminder-card',
-      title: 'Security Cameras',
-      monitors: [
-        { entity: 'camera.front_door' },
-        { entity: 'camera.backyard' },
-      ],
-      columns: 4,
-      streaming_mode: 'webrtc',
-      show_motion_indicator: true,
+  private onTimeUpdate(ev: Event): void {
+    if (!this.playing) return;
+    const video = ev.target as HTMLVideoElement;
+    this.playing = {
+      ...this.playing,
+      at: this.playing.clip.start + video.currentTime * 1000,
     };
   }
+
+  /** Continuous recording is cut into clips; play straight on into the next. */
+  private onEnded(): void {
+    if (!this.playing) return;
+    const next = this.clips.find(
+      (c) =>
+        c.start >= this.playing!.clip.end - JOIN_GAP_MS &&
+        c.event.id !== this.playing!.clip.event.id &&
+        c.event.video,
+    );
+    if (next && next.start - this.playing.clip.end <= JOIN_GAP_MS) {
+      this.playing = { clip: next, at: next.start };
+      this.seekOnLoad = 0;
+    } else {
+      this.paused = true;
+    }
+  }
+
+  private togglePause(): void {
+    const video = this.recordingVideo;
+    if (!video) return;
+    if (video.paused) {
+      video.play();
+      this.paused = false;
+    } else {
+      video.pause();
+      this.paused = true;
+    }
+  }
+
+  private cycleSpeed(): void {
+    this.speed = SPEEDS[(SPEEDS.indexOf(this.speed) + 1) % SPEEDS.length];
+    if (this.recordingVideo) this.recordingVideo.playbackRate = this.speed;
+  }
+
+  // -- Strip interaction ---------------------------------------------------
+
+  private timeAt(ev: PointerEvent): { t: number; x: number } {
+    const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = Math.min(Math.max(ev.clientX - rect.left, 0), rect.width);
+    const { start, end } = this.span;
+    return { t: start + (x / rect.width) * (end - start), x };
+  }
+
+  private onStripMove(ev: PointerEvent): void {
+    const { t, x } = this.timeAt(ev);
+    this.hover = { t, x, clip: this.clipAt(t) };
+  }
+
+  private onStripClick(ev: PointerEvent): void {
+    this.play(this.timeAt(ev).t);
+  }
+
+  private onStripKey(ev: KeyboardEvent): void {
+    const { start, end } = this.span;
+    const step = (ev.shiftKey ? 10 : 1) * 60_000;
+    const from = this.cursor ?? this.playing?.at ?? end;
+    let next: number | undefined;
+    switch (ev.key) {
+      case "ArrowLeft":
+        next = from - step;
+        break;
+      case "ArrowRight":
+        next = from + step;
+        break;
+      case "Home":
+        next = start;
+        break;
+      case "End":
+        next = end;
+        break;
+      case "Enter":
+      case " ":
+        ev.preventDefault();
+        this.play(from);
+        return;
+      case "Escape":
+        this.backToLive();
+        return;
+      default:
+        return;
+    }
+    ev.preventDefault();
+    this.cursor = Math.min(Math.max(next, start), end);
+  }
+
+  // -- PTZ -----------------------------------------------------------------
+
+  private ptzCommand(command: string): void {
+    this.hass.callService(DOMAIN, "ptz", { entity_id: this.entity, command });
+  }
+
+  private ptzButton(command: string, icon: string, label: string) {
+    const start = (ev: Event) => {
+      ev.preventDefault();
+      this.ptzCommand(command);
+    };
+    const stop = () => command !== "home" && this.ptzCommand("stop");
+    return html`<button
+      class="ptz-${command}"
+      aria-label=${label}
+      @pointerdown=${start}
+      @pointerup=${stop}
+      @pointerleave=${(ev: PointerEvent) => ev.buttons && stop()}
+      @keydown=${(ev: KeyboardEvent) =>
+        (ev.key === "Enter" || ev.key === " ") && !ev.repeat && start(ev)}
+      @keyup=${(ev: KeyboardEvent) =>
+        (ev.key === "Enter" || ev.key === " ") && stop()}
+    >
+      <ha-icon icon=${icon}></ha-icon>
+    </button>`;
+  }
+
+  private moreInfo(): void {
+    this.dispatchEvent(
+      new CustomEvent("hass-more-info", {
+        detail: { entityId: this.entity },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  // -- Rendering -----------------------------------------------------------
+
+  protected render() {
+    const stateObj = this.stateObj;
+    if (!stateObj) {
+      return html`<div class="missing">
+        ${this.entity} isn't available. Check that the ZoneMinder integration is
+        loaded.
+      </div>`;
+    }
+    const a = stateObj.attributes;
+    const degrees = Number(a.orientation_degrees) || 0;
+    const sideways = degrees === 90 || degrees === 270;
+    const w = Number(a.width) || 16;
+    const h = Number(a.height) || 9;
+    const ratio = sideways ? `${h} / ${w}` : `${w} / ${h}`;
+    const motion = this.motionState === "on";
+    const unavailable = stateObj.state === "unavailable";
+
+    return html`
+      <figure class="tile ${motion ? "motion" : ""}" style="--ratio:${ratio}">
+        <div
+          class="frame"
+          @click=${this.playing ? this.togglePause : this.moreInfo}
+        >
+          ${a.entity_picture
+            ? html`<img class="still" alt="" src=${a.entity_picture} />`
+            : nothing}
+          <div
+            class="turn ${this.liveShowing || this.playing ? "" : "waiting"}"
+            style="--deg:${degrees}deg"
+            ?data-sideways=${sideways}
+          >
+            ${!this.playing && this.visible && this.streamReady && !unavailable
+              ? html`<ha-camera-stream
+                  .hass=${this.hass}
+                  .stateObj=${stateObj}
+                  .muted=${true}
+                  .controls=${false}
+                  .allowExoPlayer=${true}
+                  .fitMode=${"cover"}
+                ></ha-camera-stream>`
+              : nothing}
+          </div>
+          ${this.playing
+            ? html`<video
+                class="playback"
+                muted
+                playsinline
+                preload="auto"
+                poster=${this.playing.clip.event.thumbnail ?? nothing}
+                src=${this.playing.clip.event.video!}
+                @loadedmetadata=${this.onLoaded}
+                @timeupdate=${this.onTimeUpdate}
+                @ended=${this.onEnded}
+              ></video>`
+            : nothing}
+          ${this.renderPlate(stateObj, motion, unavailable)}
+          ${!this.playing && this.ptz && a.controllable
+            ? this.renderPtz()
+            : nothing}
+        </div>
+        ${this.playing
+          ? html`<div class="transport">
+              <button @click=${this.togglePause}>
+                ${this.paused ? "Play" : "Pause"}
+              </button>
+              <button
+                @click=${this.cycleSpeed}
+                aria-label="Playback speed, now ${this.speed} times"
+              >
+                ${this.speed}×
+              </button>
+              <button class="live-btn" @click=${this.backToLive}>
+                Back to live
+              </button>
+            </div>`
+          : nothing}
+        ${this.renderStrip()}
+      </figure>
+    `;
+  }
+
+  private renderPlate(
+    stateObj: HassEntity,
+    motion: boolean,
+    unavailable: boolean,
+  ) {
+    const title = this.label ?? name(stateObj);
+    if (this.playing) {
+      return html`<figcaption class="plate">
+        <span class="name">${title}</span>
+        <span class="when">${this.clock.formatMoment(this.playing.at)}</span>
+      </figcaption>`;
+    }
+    const status = unavailable
+      ? "Offline"
+      : motion
+        ? "Motion"
+        : stateObj.attributes.recording &&
+            stateObj.attributes.recording !== "None"
+          ? "Recording"
+          : "Live";
+    return html`<figcaption class="plate">
+      <span class="name">${title}</span>
+      <span class="status ${status.toLowerCase()}">${status}</span>
+    </figcaption>`;
+  }
+
+  private renderPtz() {
+    return html`<div class="ptz" @click=${(ev: Event) => ev.stopPropagation()}>
+      ${this.ptzButton("up", "mdi:chevron-up", "Tilt up")}
+      ${this.ptzButton("left", "mdi:chevron-left", "Pan left")}
+      ${this.ptzButton("home", "mdi:crosshairs", "Go to home position")}
+      ${this.ptzButton("right", "mdi:chevron-right", "Pan right")}
+      ${this.ptzButton("down", "mdi:chevron-down", "Tilt down")}
+    </div>`;
+  }
+
+  private renderStrip() {
+    const { start, end } = this.span;
+    const total = end - start;
+    const x = (t: number) =>
+      ((Math.min(Math.max(t, start), end) - start) / total) * 1000;
+    const clips = this.clips;
+    const bands = toBands(clips);
+    const alarms = clips.filter((c) => c.event.alarm_frames > 0);
+    const clock = this.clock;
+    const ticks = clock.ticks(start, end);
+    const marker = this.playing?.at ?? this.cursor;
+    const hoverClip = this.hover?.clip;
+
+    let empty: string | undefined;
+    if (this.error) empty = `Couldn't load recordings: ${this.error}`;
+    else if (this.window && clips.length === 0)
+      empty = `No recordings in the last ${this.hours} hours`;
+
+    const valueText =
+      marker !== undefined
+        ? `${clock.formatMoment(marker)}${this.clipAt(marker) ? "" : ", no recording"}`
+        : "Live";
+
+    return html`
+      <div class="strip-wrap">
+        <div
+          class="strip"
+          role="slider"
+          tabindex="0"
+          aria-label="Recordings, last ${this.hours} hours"
+          aria-valuemin=${start}
+          aria-valuemax=${end}
+          aria-valuenow=${marker ?? end}
+          aria-valuetext=${valueText}
+          @pointermove=${this.onStripMove}
+          @pointerleave=${() => (this.hover = undefined)}
+          @click=${this.onStripClick}
+          @keydown=${this.onStripKey}
+          @blur=${() => (this.cursor = undefined)}
+        >
+          <svg
+            viewBox="0 0 1000 40"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            ${ticks.map(
+              (tick) =>
+                svg`<line class="tick ${tick.midnight ? "midnight" : ""}" x1=${x(tick.t)} x2=${x(tick.t)} y1="0" y2="40" />`,
+            )}
+            ${bands.map(
+              (b) =>
+                svg`<rect class="band" x=${x(b.start)} width=${Math.max(x(b.end) - x(b.start), 1.5)} y="22" height="12" />`,
+            )}
+            ${alarms.map((c) => {
+              const height = 6 + Math.min(c.event.max_score, 100) * 0.16;
+              return svg`<rect class="alarm" x=${x(c.start)} width=${Math.max(x(c.end) - x(c.start), 2.5)} y=${34 - 12 - height} height=${height} />`;
+            })}
+            ${hoverClip
+              ? svg`<rect class="hover-clip" x=${x(hoverClip.start)} width=${Math.max(x(hoverClip.end) - x(hoverClip.start), 1.5)} y="22" height="12" />`
+              : nothing}
+            ${marker !== undefined
+              ? svg`<line class="marker" x1=${x(marker)} x2=${x(marker)} y1="4" y2="40" />`
+              : nothing}
+            <rect class="now" x="996" width="4" y="18" height="20" />
+          </svg>
+          ${this.hover ? this.renderPeek(this.hover) : nothing}
+        </div>
+        <div class="ticks" aria-hidden="true">
+          ${ticks
+            .filter((tick) => x(tick.t) > 30 && x(tick.t) < 900)
+            .map(
+              (tick) =>
+                html`<span
+                  style="left:${x(tick.t) / 10}%"
+                  class=${tick.midnight ? "midnight" : ""}
+                  >${tick.label}</span
+                >`,
+            )}
+          <span class="now-label">Now</span>
+        </div>
+        ${empty ? html`<p class="empty">${empty}</p>` : nothing}
+      </div>
+    `;
+  }
+
+  private renderPeek(hover: { t: number; x: number; clip?: Clip }) {
+    const clip = hover.clip;
+    return html`<div class="peek" style="--x:${hover.x}px">
+      ${clip?.event.thumbnail
+        ? html`<img alt="" src=${clip.event.thumbnail} />`
+        : nothing}
+      <span>${this.clock.formatMoment(hover.t)}</span>
+      ${clip ? nothing : html`<span class="gap">No recording</span>`}
+      ${clip && clip.event.alarm_frames > 0
+        ? html`<span class="cause"
+            >${clip.event.notes?.trim() || clip.event.cause}</span
+          >`
+        : nothing}
+    </div>`;
+  }
+
+  static styles = [
+    tokens,
+    css`
+      :host {
+        display: block;
+        min-width: 0;
+      }
+
+      .tile {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--zm-kerb);
+        border-radius: 10px;
+        overflow: hidden;
+        height: 100%;
+      }
+
+      .frame {
+        position: relative;
+        width: 100%;
+        aspect-ratio: var(--ratio);
+        /* Tall cameras would fill a phone screen on their own. */
+        max-height: 70vh;
+        background: #000;
+        overflow: hidden;
+        container-type: size;
+        cursor: pointer;
+      }
+
+      .turn.waiting {
+        opacity: 0;
+      }
+      .turn {
+        position: absolute;
+        inset: 0;
+      }
+      .turn[data-sideways] {
+        inset: auto;
+        left: 50%;
+        top: 50%;
+        width: 100cqh;
+        height: 100cqw;
+        transform: translate(-50%, -50%) rotate(var(--deg));
+      }
+      .turn:not([data-sideways]) {
+        transform: rotate(var(--deg));
+      }
+
+      .still,
+      .playback {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .turn > * {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      ha-camera-stream {
+        --video-max-height: 100%;
+      }
+
+      /* The name plate sits on the picture like a caption on a monitor wall. */
+      .plate {
+        position: absolute;
+        inset: auto 0 0 0;
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        padding: 28px 14px 10px;
+        background: linear-gradient(
+          to top,
+          rgba(10, 14, 17, 0.82),
+          rgba(10, 14, 17, 0)
+        );
+        color: var(--zm-fog);
+        font-family: var(--zm-font);
+        pointer-events: none;
+      }
+      .plate > * {
+        pointer-events: auto;
+      }
+      .name {
+        font-size: 1.125rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .status,
+      .when {
+        font-size: 0.9375rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--zm-concrete);
+      }
+      .status.motion {
+        color: var(--zm-sodium);
+        font-weight: 600;
+      }
+      .status.offline {
+        color: var(--zm-fog);
+      }
+      .when {
+        color: var(--zm-fog);
+      }
+      .tile.motion .plate {
+        box-shadow: inset 4px 0 0 var(--zm-sodium);
+      }
+
+      .transport {
+        display: flex;
+        gap: 8px;
+        padding: 10px 14px 0;
+      }
+      .transport .live-btn {
+        margin-left: auto;
+      }
+      button {
+        font: 500 0.9375rem/1 var(--zm-font);
+        color: var(--zm-fog);
+        background: transparent;
+        border: 1px solid rgba(227, 231, 233, 0.22);
+        border-radius: 6px;
+        padding: 8px 14px;
+        min-height: 36px;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: rgba(227, 231, 233, 0.45);
+      }
+      .live-btn {
+        background: var(--zm-fog);
+        color: var(--zm-asphalt);
+        border-color: var(--zm-fog);
+      }
+      :focus-visible {
+        outline: 2px solid var(--zm-sodium);
+        outline-offset: 2px;
+      }
+
+      .ptz {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: grid;
+        grid-template-areas: ". up ." "left home right" ". down .";
+        gap: 2px;
+        opacity: 0;
+        transition: opacity 120ms;
+      }
+      .frame:hover .ptz,
+      .ptz:focus-within {
+        opacity: 1;
+      }
+      .ptz button {
+        background: rgba(24, 32, 38, 0.8);
+        min-height: 0;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        --mdc-icon-size: 20px;
+      }
+      .ptz-up {
+        grid-area: up;
+      }
+      .ptz-down {
+        grid-area: down;
+      }
+      .ptz-left {
+        grid-area: left;
+      }
+      .ptz-right {
+        grid-area: right;
+      }
+      .ptz-home {
+        grid-area: home;
+      }
+
+      /* The strip: what this camera saw over the last day. */
+      .strip-wrap {
+        position: relative;
+        padding: 10px 14px 12px;
+        font-family: var(--zm-font);
+      }
+      .strip {
+        position: relative;
+        height: 40px;
+        cursor: crosshair;
+        border-radius: 4px;
+        touch-action: none;
+      }
+      .strip svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+        overflow: visible;
+      }
+      .tick {
+        stroke: rgba(126, 136, 144, 0.28);
+        stroke-width: 1;
+        vector-effect: non-scaling-stroke;
+      }
+      .tick.midnight {
+        stroke: rgba(126, 136, 144, 0.6);
+      }
+      .band {
+        fill: var(--zm-tape);
+      }
+      .hover-clip {
+        fill: #5d8fae;
+      }
+      .alarm {
+        fill: var(--zm-sodium);
+      }
+      .marker {
+        stroke: var(--zm-sodium);
+        stroke-width: 2;
+        vector-effect: non-scaling-stroke;
+      }
+      .now {
+        fill: var(--zm-concrete);
+      }
+      .tile.motion .now {
+        fill: var(--zm-sodium);
+        animation: breathe 1.6s ease-in-out infinite;
+      }
+      @keyframes breathe {
+        50% {
+          opacity: 0.35;
+        }
+      }
+
+      .ticks {
+        position: relative;
+        height: 16px;
+        margin-top: 4px;
+        font-size: 0.8125rem;
+        color: var(--zm-concrete);
+        font-variant-numeric: tabular-nums;
+      }
+      .ticks span {
+        position: absolute;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
+      .ticks span.midnight {
+        color: var(--zm-fog);
+      }
+      .ticks .now-label {
+        right: 0;
+        transform: none;
+      }
+
+      .peek {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: clamp(80px, var(--x), calc(100% - 80px));
+        transform: translateX(-50%);
+        width: 160px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 4px 4px 6px;
+        background: var(--zm-asphalt);
+        border: 1px solid rgba(227, 231, 233, 0.16);
+        border-radius: 6px;
+        color: var(--zm-fog);
+        font-size: 0.875rem;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+        z-index: 2;
+      }
+      .peek img {
+        width: 100%;
+        aspect-ratio: var(--ratio);
+        max-height: 180px;
+        object-fit: cover;
+        border-radius: 3px;
+        background: #000;
+      }
+      .peek span {
+        padding: 0 4px;
+      }
+      .peek .gap,
+      .peek .cause {
+        color: var(--zm-concrete);
+      }
+      .peek .cause {
+        color: var(--zm-sodium);
+      }
+
+      .empty {
+        margin: 6px 0 0;
+        color: var(--zm-concrete);
+        font-size: 0.875rem;
+      }
+      .missing {
+        padding: 16px;
+        color: var(--zm-concrete);
+        font-family: var(--zm-font);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .tile.motion .now {
+          animation: none;
+        }
+        .ptz {
+          transition: none;
+        }
+      }
+    `,
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// The card
+// ---------------------------------------------------------------------------
+
+export class ZoneMinderCard extends LitElement {
+  @property({ attribute: false }) hass!: HomeAssistant;
+  @state() private config!: ZoneMinderCardConfig;
+
+  static getStubConfig(): Partial<ZoneMinderCardConfig> {
+    return {};
+  }
+
+  setConfig(config: ZoneMinderCardConfig): void {
+    if (
+      config.hours !== undefined &&
+      (config.hours < 1 || config.hours > 168)
+    ) {
+      throw new Error("hours must be between 1 and 168");
+    }
+    this.config = config;
+    requestFont();
+  }
+
+  getCardSize(): number {
+    return 6 * Math.ceil(this.cameras.length / (this.config?.columns ?? 2));
+  }
+
+  getGridOptions() {
+    return { columns: "full", rows: "auto" };
+  }
+
+  private get cameras(): Array<{ entity: string; name?: string }> {
+    if (!this.hass) return [];
+    if (this.config?.entities?.length) {
+      return this.config.entities.map((e) =>
+        typeof e === "string" ? { entity: e } : e,
+      );
+    }
+    return zoneminderCameras(this.hass).map((entity) => ({ entity }));
+  }
+
+  protected render() {
+    const cameras = this.cameras;
+    const columns = this.config.columns;
+    return html`
+      <ha-card>
+        ${cameras.length
+          ? html`<div
+              class="wall"
+              style=${columns
+                ? `grid-template-columns: repeat(${columns}, minmax(0, 1fr))`
+                : ""}
+            >
+              ${cameras.map(
+                (c) =>
+                  html`<zm-camera-tile
+                    .hass=${this.hass}
+                    .entity=${c.entity}
+                    .label=${c.name}
+                    .hours=${this.config.hours ?? DEFAULT_HOURS}
+                    .ptz=${this.config.ptz ?? true}
+                    class=${this.isSideways(c.entity) ? "tall" : ""}
+                  ></zm-camera-tile>`,
+              )}
+            </div>`
+          : html`<p class="none">
+              No ZoneMinder cameras yet. Add the ZoneMinder integration under
+              Settings, then Devices & services.
+            </p>`}
+      </ha-card>
+    `;
+  }
+
+  private isSideways(entity: string): boolean {
+    const deg =
+      Number(this.hass.states[entity]?.attributes.orientation_degrees) || 0;
+    return deg === 90 || deg === 270;
+  }
+
+  static styles = [
+    tokens,
+    css`
+      ha-card {
+        background: var(--zm-asphalt);
+        padding: 12px;
+        border-radius: var(--ha-card-border-radius, 12px);
+        overflow: visible;
+      }
+      .wall {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+        grid-auto-flow: row dense;
+        gap: 12px;
+        align-items: start;
+      }
+      .none {
+        margin: 0;
+        padding: 8px 4px;
+        color: var(--zm-fog);
+        font-family: var(--zm-font);
+      }
+    `,
+  ];
+}
+
+// The integration loads this card on every dashboard, and older setups may
+// also list it as a manual resource. The second copy must step aside quietly.
+if (!customElements.get("zoneminder-card")) {
+  customElements.define("zm-camera-tile", ZmCameraTile);
+  customElements.define("zoneminder-card", ZoneMinderCard);
+  registerCardPicker();
+}
+
+function registerCardPicker(): void {
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "zoneminder-card",
+    name: "ZoneMinder",
+    description:
+      "Live cameras with a day of recordings under each one. Click the strip to play back.",
+    preview: true,
+  });
 }
