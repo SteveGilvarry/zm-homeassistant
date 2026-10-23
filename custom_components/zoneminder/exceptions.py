@@ -27,5 +27,9 @@ class ZMApiError(ZMError):
     """The server was reached but returned an error."""
 
 
+class ZMNotFoundError(ZMApiError):
+    """The server answered 404: the thing asked for does not exist."""
+
+
 class ZMNotSupportedError(ZMError):
     """The active backend does not implement the requested capability."""

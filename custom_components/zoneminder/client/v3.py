@@ -7,9 +7,11 @@ See https://github.com/SteveGilvarry/zm-api.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+import json
 import logging
 from typing import Any
 
@@ -23,15 +25,19 @@ from ..const import (
     V3_CONFIGS,
     V3_CONTROL_PRESETS,
     V3_EVENT,
+    V3_EVENT_STREAM,
     V3_EVENT_SUMMARY,
     V3_EVENT_THUMBNAIL,
     V3_EVENT_VIDEO,
     V3_EVENTS,
     V3_LIVE_HLS_MASTER,
+    V3_LIVE_HLS_PLAYLIST,
+    V3_LIVE_RTSP_LINK,
     V3_LIVE_START,
     V3_LIVE_STATS,
     V3_LIVE_STOP,
     V3_LIVE_WEBRTC_WS,
+    V3_LIVE_WHEP,
     V3_LOGIN,
     V3_MONITOR,
     V3_MONITOR_ALARM,
@@ -44,6 +50,8 @@ from ..const import (
     V3_PTZ_PRESET_GOTO,
     V3_PTZ_ZOOM,
     V3_REFRESH,
+    V3_STATE,
+    V3_STATES,
     V3_STORAGE,
     V3_SYSTEM_STATUS,
     V3_VERSION,
@@ -52,6 +60,7 @@ from ..exceptions import (
     ZMApiError,
     ZMAuthenticationError,
     ZMConnectionError,
+    ZMNotFoundError,
     ZMNotSupportedError,
 )
 from ..models import (
@@ -59,6 +68,7 @@ from ..models import (
     EventSummary,
     Monitor,
     MonitorStatus,
+    RunState,
     ServerInfo,
     StorageArea,
 )
@@ -72,6 +82,23 @@ _PAGE_SIZE = 500
 _TOKEN_SKEW = timedelta(seconds=60)
 #: A live session is re-armed if we have not touched it for this long.
 _LIVE_SESSION_TTL = timedelta(minutes=2)
+#: How long to wait for a new live session to publish its first segment.
+_FIRST_SEGMENT_TIMEOUT = 10.0
+_FIRST_SEGMENT_POLL = 0.5
+#: Lifetime requested for RTSP links, and how early to replace one.
+_RTSP_LINK_TTL = timedelta(days=7)
+_RTSP_LINK_RENEW = timedelta(days=1)
+#: After the server says RTSP is unavailable, wait this long before asking again.
+_RTSP_RETRY = timedelta(minutes=10)
+
+#: What zm-api's WHEP status codes mean, in words the user can act on.
+_WHEP_ERRORS = {
+    400: "ZoneMinder could not use the browser's WebRTC offer",
+    401: "ZoneMinder rejected the integration's login",
+    404: "This camera has no live stream right now",
+    406: "This browser can't play the camera's video codec over WebRTC (H.265?)",
+    503: "ZoneMinder's WebRTC is switched off or at its session limit",
+}
 
 _PTZ_MOVE_DIRECTIONS = {
     "up": "up",
@@ -105,6 +132,9 @@ class ZoneMinderV3Client(ZoneMinderClient):
         self._refresh_token: str | None = None
         self._token_expires: datetime | None = None
         self._live_sessions: dict[int, datetime] = {}
+        self._rtsp_links: dict[int, tuple[str, datetime]] = {}
+        self._rtsp_unavailable_until: datetime | None = None
+        self._whep_supported: bool | None = None
 
     # -- Authentication ------------------------------------------------------
 
@@ -142,8 +172,8 @@ class ZoneMinderV3Client(ZoneMinderClient):
                     raise ZMAuthenticationError("Invalid username or password")
                 if response.status == 404:
                     raise ZMConnectionError(
-                        f"No zm-api server at {self._host}. Check the URL and port, "
-                        "or switch the integration to the legacy backend."
+                        f"No ZoneMinder API v3 at {self._host}. Check the URL and "
+                        "port, or set the integration up with API v2 instead."
                     )
                 response.raise_for_status()
                 result = await response.json()
@@ -193,6 +223,8 @@ class ZoneMinderV3Client(ZoneMinderClient):
         self._refresh_token = None
         self._token_expires = None
         self._live_sessions.clear()
+        self._rtsp_links.clear()
+        self._whep_supported = None
 
     # -- Requests ------------------------------------------------------------
 
@@ -227,7 +259,7 @@ class ZoneMinderV3Client(ZoneMinderClient):
                             await self.authenticate()
                         continue
                     if response.status == 404:
-                        raise ZMApiError(f"Not found: {endpoint}")
+                        raise ZMNotFoundError(f"Not found: {endpoint}")
                     response.raise_for_status()
                     if response.status == 204 or not response.content_length:
                         text = await response.text()
@@ -368,6 +400,56 @@ class ZoneMinderV3Client(ZoneMinderClient):
         )
         _LOGGER.debug("Monitor %d updated: %s", monitor_id, body)
 
+    # -- Run states ----------------------------------------------------------
+
+    async def get_run_states(self) -> list[RunState]:
+        """Return the server's saved run states."""
+        return [RunState.from_dict(item) for item in await self._paginate(V3_STATES)]
+
+    async def save_run_state(self, name: str, definition: str) -> None:
+        """Create the run state, or overwrite it if the name exists."""
+        states = await self.get_run_states()
+        existing = next((s for s in states if s.name == name), None)
+        if existing is None:
+            await self._request(
+                "POST", V3_STATES, json={"name": name, "definition": definition}
+            )
+        else:
+            await self._request(
+                "PATCH",
+                V3_STATE.format(state_id=existing.id),
+                json={"definition": definition},
+            )
+
+    async def set_run_state(self, state: RunState) -> None:
+        """Apply a run state the way zmpkg.pl does, then mark it active.
+
+        API v3 stores run states but has no "apply" call, so each monitor whose
+        modes differ is updated directly. The ZoneMinder daemons pick monitor
+        changes up without the full restart zmpkg.pl performs.
+        """
+        modes = state.monitor_modes()
+        for monitor in await self.get_monitors():
+            wanted = modes.get(monitor.id)
+            if wanted is None:
+                continue
+            if wanted != (monitor.capturing, monitor.analysing, monitor.recording):
+                capturing, analysing, recording = wanted
+                await self.set_monitor_state(
+                    monitor.id,
+                    capturing=capturing,
+                    analysing=analysing,
+                    recording=recording,
+                )
+        for other in await self.get_run_states():
+            should_be_active = other.id == state.id
+            if other.active != should_be_active:
+                await self._request(
+                    "PATCH",
+                    V3_STATE.format(state_id=other.id),
+                    json={"is_active": int(should_be_active)},
+                )
+
     # -- Events --------------------------------------------------------------
 
     async def get_events(
@@ -433,6 +515,9 @@ class ZoneMinderV3Client(ZoneMinderClient):
                 "GET", V3_EVENT_SUMMARY.format(monitor_id=monitor_id)
             )
             return EventSummary.from_v3_dict(response)
+        except ZMNotFoundError:
+            # zm-api has no summary row for a monitor that has never recorded.
+            return EventSummary(monitor_id=monitor_id)
         except (ZMApiError, ZMConnectionError) as err:
             _LOGGER.debug("Event summary for monitor %d failed: %s", monitor_id, err)
             return None
@@ -520,10 +605,227 @@ class ZoneMinderV3Client(ZoneMinderClient):
             )
             self._live_sessions[monitor_id] = datetime.now()
             _LOGGER.debug("Live session started for monitor %d", monitor_id)
+            await self._async_wait_for_first_segment(monitor_id)
         except (ZMApiError, ZMConnectionError) as err:
             _LOGGER.warning(
                 "Could not start a live session for monitor %d: %s", monitor_id, err
             )
+
+    # -- Event stream ----------------------------------------------------------
+
+    async def async_event_stream(
+        self, since: int | None = None
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """Yield (message type, data) from zm-api's server-sent event stream.
+
+        The stream ends when the access token expires (about every ten
+        minutes); the caller reconnects with ``since`` to pick up where it left
+        off. Raises ZMNotFoundError on servers without the stream.
+        """
+        await self._async_ensure_token()
+        headers = {**self._auth_headers(), "Accept": "text/event-stream"}
+        params = {"since": str(since)} if since is not None else None
+        async with self._session.get(
+            self._build_url(V3_EVENT_STREAM),
+            headers=headers,
+            params=params,
+            # No overall limit; a silent minute means the link is dead, since
+            # the server sends a heartbeat every 15 seconds.
+            timeout=aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=60),
+            ssl=self._verify_ssl,
+        ) as response:
+            # Older servers route /events/stream to /events/{id} and reject
+            # "stream" as an id (400 or 422) rather than answering 404.
+            if response.status in (400, 404, 405, 422):
+                raise ZMNotFoundError("This server has no event stream")
+            if response.status in (401, 403):
+                raise ZMAuthenticationError("Event stream refused the token")
+            response.raise_for_status()
+
+            message_type = "message"
+            data: list[str] = []
+            async for raw in response.content:
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if not line:
+                    if data:
+                        try:
+                            payload = json.loads("\n".join(data))
+                        except ValueError:
+                            payload = None
+                        if isinstance(payload, dict):
+                            yield payload.get("type", message_type), payload
+                    message_type, data = "message", []
+                elif line.startswith(":"):
+                    continue
+                else:
+                    field, _, value = line.partition(":")
+                    value = value.removeprefix(" ")
+                    if field == "event":
+                        message_type = value
+                    elif field == "data":
+                        data.append(value)
+
+    # -- WebRTC (WHEP) -------------------------------------------------------
+
+    async def async_supports_whep(self, monitor_id: int) -> bool:
+        """Return True when the server has WHEP playback (RFC 9725).
+
+        An empty, non-SDP POST is cheap: a server with the endpoint refuses it
+        with 415 (or 400) before doing any work; one without it answers 404.
+        """
+        if self._whep_supported is not None:
+            return self._whep_supported
+        await self._async_ensure_token()
+        try:
+            async with self._session.post(
+                self._build_url(V3_LIVE_WHEP.format(monitor_id=monitor_id)),
+                headers={**self._auth_headers(), "Content-Type": "text/plain"},
+                data=b"",
+                timeout=self._timeout,
+                ssl=self._verify_ssl,
+            ) as response:
+                self._whep_supported = response.status in (400, 415)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.debug("WHEP probe failed: %s", err)
+            return False
+        _LOGGER.debug(
+            "WHEP playback %s", "available" if self._whep_supported else "not available"
+        )
+        return self._whep_supported
+
+    async def async_whep_offer(
+        self, monitor_id: int, offer_sdp: str
+    ) -> tuple[str, str]:
+        """Send a browser's SDP offer; return (answer SDP, session URL)."""
+        await self._async_ensure_token()
+        try:
+            async with self._session.post(
+                self._build_url(V3_LIVE_WHEP.format(monitor_id=monitor_id)),
+                headers={**self._auth_headers(), "Content-Type": "application/sdp"},
+                data=offer_sdp.encode(),
+                timeout=self._timeout,
+                ssl=self._verify_ssl,
+            ) as response:
+                body = await response.text()
+                if response.status != 201:
+                    raise ZMApiError(
+                        _WHEP_ERRORS.get(
+                            response.status, body.strip() or str(response.status)
+                        )
+                    )
+                location = response.headers.get("Location")
+                if not location:
+                    raise ZMApiError("WebRTC answer had no session location")
+                return body, location
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise ZMConnectionError(f"WebRTC offer failed: {err}") from err
+
+    async def async_whep_candidate(
+        self, location: str, sdp_mid: str | None, candidate: str
+    ) -> None:
+        """Trickle one browser ICE candidate to an open session."""
+        lines = []
+        if sdp_mid is not None:
+            lines.append(f"a=mid:{sdp_mid}")
+        lines.append(f"a={candidate}" if not candidate.startswith("a=") else candidate)
+        await self._async_ensure_token()
+        async with self._session.patch(
+            self._build_url(location.lstrip("/")),
+            headers={
+                **self._auth_headers(),
+                "Content-Type": "application/trickle-ice-sdpfrag",
+            },
+            data=("\r\n".join(lines) + "\r\n").encode(),
+            timeout=self._timeout,
+            ssl=self._verify_ssl,
+        ) as response:
+            if response.status >= 400:
+                _LOGGER.debug(
+                    "Candidate refused (%s) for %s", response.status, location
+                )
+
+    async def async_whep_close(self, location: str) -> None:
+        """End a WebRTC session."""
+        try:
+            async with self._session.delete(
+                self._build_url(location.lstrip("/")),
+                headers=self._auth_headers(),
+                timeout=self._timeout,
+                ssl=self._verify_ssl,
+            ):
+                pass
+        except (aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.debug("Closing WebRTC session %s failed: %s", location, err)
+
+    async def async_get_rtsp_url(self, monitor_id: int) -> str | None:
+        """Return a signed RTSP link for the monitor, or None.
+
+        zm-api mints per-monitor, view-only links that carry their own
+        credentials (``?st=``), so Home Assistant's stream component and its
+        bundled go2rtc can open them directly, with no proxy. Links are reused
+        until a day before they expire. Servers without RTSP (switched off, or
+        older than the feature) answer 503 or 404, and we fall back to HLS.
+        """
+        now = datetime.now(UTC)
+        cached = self._rtsp_links.get(monitor_id)
+        if cached and cached[1] - now > _RTSP_LINK_RENEW:
+            return cached[0]
+        if self._rtsp_unavailable_until and now < self._rtsp_unavailable_until:
+            return None
+
+        try:
+            result = await self._request(
+                "POST",
+                V3_LIVE_RTSP_LINK.format(monitor_id=monitor_id),
+                json={"ttl_seconds": int(_RTSP_LINK_TTL.total_seconds())},
+            )
+        except ZMApiError as err:
+            _LOGGER.debug("RTSP is not available, using HLS: %s", err)
+            self._rtsp_unavailable_until = now + _RTSP_RETRY
+            return None
+        except ZMConnectionError as err:
+            _LOGGER.debug(
+                "Could not mint an RTSP link for monitor %d: %s", monitor_id, err
+            )
+            return None
+
+        url = result.get("url") if isinstance(result, dict) else None
+        if not url:
+            return None
+        try:
+            expires = datetime.fromtimestamp(float(result["expires_at"]), UTC)
+        except (KeyError, TypeError, ValueError):
+            expires = now + _RTSP_LINK_TTL
+        self._rtsp_links[monitor_id] = (url, expires)
+        self._rtsp_unavailable_until = None
+        return url
+
+    async def _async_wait_for_first_segment(self, monitor_id: int) -> None:
+        """Wait until a new session's playlist lists a segment.
+
+        A fresh session's playlist is empty for a few seconds. Home
+        Assistant's stream worker gives up on a playlist with no segments
+        ("Stream has no video"), so hand it the URL only once there is
+        something to play. Times out quietly; the worker will retry.
+        """
+        path = V3_LIVE_HLS_PLAYLIST.format(monitor_id=monitor_id)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _FIRST_SEGMENT_TIMEOUT
+        while True:
+            try:
+                async with self.async_stream_media(path) as response:
+                    if response.status == 200 and "#EXTINF" in await response.text():
+                        return
+            except (aiohttp.ClientError, TimeoutError) as err:
+                _LOGGER.debug("Polling playlist for monitor %d: %s", monitor_id, err)
+            if loop.time() >= deadline:
+                _LOGGER.debug(
+                    "Monitor %d published no segment within %.0fs",
+                    monitor_id,
+                    _FIRST_SEGMENT_TIMEOUT,
+                )
+                return
+            await asyncio.sleep(_FIRST_SEGMENT_POLL)
 
     async def async_stop_live(self, monitor_id: int) -> None:
         """Release a live session."""

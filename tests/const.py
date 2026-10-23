@@ -151,6 +151,24 @@ EVENTS = [
     event(297, 2, cause="Motion", alarm_frames=4),
 ]
 
+RUN_STATES = [
+    {"id": 1, "name": "default", "definition": "", "is_active": 0},
+    {
+        "id": 2,
+        "name": "Home",
+        "definition": "1:Always:None:Always,2:Always:None:None,3:Always:None:None",
+        "is_active": 1,
+    },
+    {
+        "id": 3,
+        "name": "Away",
+        "definition": (
+            "1:Always:Always:Always,2:Always:Always:OnMotion,3:Always:Always:OnMotion"
+        ),
+        "is_active": 0,
+    },
+]
+
 EVENT_SUMMARY = {
     "monitor_id": 1,
     "total_events": 126,
@@ -225,3 +243,14 @@ def paginated(items: list[dict[str, Any]]) -> dict[str, Any]:
         "current_page": 1,
         "last_page": 1,
     }
+
+
+# A live HLS playlist with segments, as zm-api serves once a session is warm.
+LIVE_PLAYLIST = (
+    "#EXTM3U\n"
+    "#EXT-X-VERSION:6\n"
+    "#EXT-X-TARGETDURATION:5\n"
+    '#EXT-X-MAP:URI="init.mp4"\n'
+    "#EXTINF:5.000,\n"
+    "segment_00000.m4s\n"
+)

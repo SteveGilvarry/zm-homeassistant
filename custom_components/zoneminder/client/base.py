@@ -18,7 +18,14 @@ import aiohttp
 
 from ..const import DEFAULT_TIMEOUT, STREAM_TYPE_MJPEG
 from ..exceptions import ZMNotSupportedError
-from ..models import Event, EventSummary, Monitor, MonitorStatus, ServerInfo
+from ..models import (
+    Event,
+    EventSummary,
+    Monitor,
+    MonitorStatus,
+    RunState,
+    ServerInfo,
+)
 
 
 class ZoneMinderClient(ABC):
@@ -176,6 +183,10 @@ class ZoneMinderClient(ABC):
         """
         return None
 
+    async def async_get_rtsp_url(self, monitor_id: int) -> str | None:
+        """Return a self-authenticating RTSP URL, if the backend offers one."""
+        return None
+
     @abstractmethod
     async def get_stream_source(self, monitor_id: int) -> str | None:
         """Return a stream URL for Home Assistant's stream component.
@@ -202,6 +213,18 @@ class ZoneMinderClient(ABC):
     def get_live_media_path(self, monitor_id: int) -> str | None:
         """Return the relative path of the live HLS master playlist."""
         return None
+
+    async def get_run_states(self) -> list[RunState]:
+        """Return the server's saved run states."""
+        return []
+
+    async def save_run_state(self, name: str, definition: str) -> None:
+        """Create or overwrite a named run state."""
+        raise ZMNotSupportedError("This API cannot save run states")
+
+    async def set_run_state(self, state: RunState) -> None:
+        """Switch the server to a run state."""
+        raise ZMNotSupportedError("This API cannot switch run states")
 
     def get_event_media_path(self, event_id: int) -> str | None:
         """Return the relative path of an event's video."""

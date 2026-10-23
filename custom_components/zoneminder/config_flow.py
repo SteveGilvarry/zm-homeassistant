@@ -31,6 +31,7 @@ import voluptuous as vol
 
 from .api import build_client
 from .const import (
+    BACKEND_LEGACY,
     BACKEND_V3,
     BACKENDS,
     CONF_BACKEND,
@@ -149,6 +150,33 @@ class ZoneMinderConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"default_port": "8080"},
         )
 
+    async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
+        """Move a server from the old YAML integration to a config entry.
+
+        The core ZoneMinder integration only spoke the built-in API, so the
+        imported entry does too; switch to API v3 later with Reconfigure.
+        """
+        scheme = "https" if import_data.get("ssl") else "http"
+        path = "/" + str(import_data.get("path", "/zm/")).strip("/")
+        host = f"{scheme}://{import_data[CONF_HOST]}{path}".rstrip("/")
+        user_input = {
+            CONF_BACKEND: BACKEND_LEGACY,
+            CONF_HOST: host,
+            CONF_USERNAME: import_data.get(CONF_USERNAME, ""),
+            CONF_PASSWORD: import_data.get(CONF_PASSWORD, ""),
+            CONF_VERIFY_SSL: import_data.get(CONF_VERIFY_SSL, True),
+            CONF_MQTT_ENABLED: True,
+        }
+        await self.async_set_unique_id(_normalise_host(host))
+        self._abort_if_unique_id_configured()
+        if errors := await self._async_try(user_input):
+            return self.async_abort(reason=errors["base"])
+        return self.async_create_entry(
+            title=f"ZoneMinder ({host})",
+            data={k: v for k, v in user_input.items() if k != CONF_MQTT_ENABLED},
+            options={CONF_MQTT_ENABLED: True},
+        )
+
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
@@ -192,10 +220,17 @@ class ZoneMinderConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors = await self._async_try(user_input)
             if not errors:
-                await self.async_set_unique_id(_normalise_host(user_input[CONF_HOST]))
-                self._abort_if_unique_id_mismatch(reason="wrong_server")
+                # The unique id is the URL, so moving the server (new port,
+                # zm-api instead of /zm) changes it. Allow that, but refuse an
+                # address another entry already owns.
+                unique_id = _normalise_host(user_input[CONF_HOST])
+                if unique_id != entry.unique_id:
+                    await self.async_set_unique_id(unique_id)
+                    self._abort_if_unique_id_configured()
                 return self.async_update_reload_and_abort(
                     entry,
+                    unique_id=unique_id,
+                    title=f"ZoneMinder ({user_input[CONF_HOST].rstrip('/')})",
                     data_updates={
                         CONF_BACKEND: user_input.get(CONF_BACKEND, DEFAULT_BACKEND),
                         CONF_HOST: user_input[CONF_HOST].rstrip("/"),

@@ -17,7 +17,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import MQTT_MOTION_TIMEOUT, SIGNAL_MQTT_EVENT
+from .const import MQTT_MOTION_TIMEOUT, SIGNAL_ALARM_STATE, SIGNAL_MQTT_EVENT
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
@@ -29,6 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 #: ZoneMinder's cause for events produced by continuous recording rather than
 #: by motion analysis.
 _CONTINUOUS_CAUSE = "Continuous"
+_ALARM_STATES = ("idle", "prealarm", "alarm", "alert")
 
 
 async def async_setup_entry(
@@ -70,9 +71,11 @@ class ZoneMinderMotionSensor(ZoneMinderMonitorEntity, BinarySensorEntity):
         self._mqtt_event_id: int | None = None
         self._mqtt_since: datetime | None = None
         self._labels: list[str] = []
+        #: ZoneMinder's own alarm state, when the event stream provides it.
+        self._alarm_state: str | None = None
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to MQTT notifications for this monitor."""
+        """Subscribe to event notices and live alarm state for this monitor."""
         await super().async_added_to_hass()
         self.async_on_remove(
             async_dispatcher_connect(
@@ -81,7 +84,26 @@ class ZoneMinderMotionSensor(ZoneMinderMonitorEntity, BinarySensorEntity):
                 self._handle_mqtt_event,
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ALARM_STATE.format(self._monitor_id),
+                self._handle_alarm_state,
+            )
+        )
         self._recalculate()
+
+    @callback
+    def _handle_alarm_state(self, state: str) -> None:
+        """Follow ZoneMinder's live alarm state, the most direct motion signal.
+
+        "alert" is the post-alarm countdown, still part of the same motion.
+        "unknown" means ZoneMinder can't read the monitor's state right now, so
+        the event-based logic takes over again.
+        """
+        self._alarm_state = state if state in _ALARM_STATES else None
+        self._recalculate()
+        self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -116,6 +138,9 @@ class ZoneMinderMotionSensor(ZoneMinderMonitorEntity, BinarySensorEntity):
             # the ones continuous recording produces. Only a monitor that is
             # actually analysing can report motion, so anything else would be
             # a false positive.
+            if event.cause == _CONTINUOUS_CAUSE:
+                # A new chunk of continuous recording, not something moving.
+                return
             if monitor is not None and not monitor.is_analysing:
                 _LOGGER.debug(
                     "Ignoring event %d on monitor %d: motion analysis is off",
@@ -126,10 +151,15 @@ class ZoneMinderMotionSensor(ZoneMinderMonitorEntity, BinarySensorEntity):
             self._mqtt_event_id = event.event_id
             self._mqtt_since = dt_util.utcnow()
             self._labels = event.labels
-            self._attr_is_on = True
+            self._attr_is_on = (
+                self._alarm_state in ("alarm", "alert")
+                if self._alarm_state is not None
+                else True
+            )
         elif event.event_id == self._mqtt_event_id:
             self._clear_mqtt_state()
-            self._attr_is_on = False
+            if self._alarm_state is None:
+                self._attr_is_on = False
         else:
             return
 
@@ -149,6 +179,9 @@ class ZoneMinderMotionSensor(ZoneMinderMonitorEntity, BinarySensorEntity):
 
     def _recalculate(self) -> None:
         """Derive motion state from polled data and the MQTT override."""
+        if self._alarm_state is not None:
+            self._attr_is_on = self._alarm_state in ("alarm", "alert")
+            return
         if self._mqtt_event_id is not None:
             if self._mqtt_expired():
                 _LOGGER.debug(

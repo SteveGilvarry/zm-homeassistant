@@ -10,6 +10,8 @@ DOMAIN: Final = "zoneminder"
 
 CONF_BACKEND: Final = "backend"
 CONF_MQTT_ENABLED: Final = "mqtt_enabled"
+#: Signs the per-event links put in notifications. Created on first setup.
+CONF_NOTIFY_KEY: Final = "notify_key"
 CONF_MQTT_TOPIC: Final = "mqtt_topic"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_VERIFY_SSL: Final = "verify_ssl"
@@ -55,6 +57,8 @@ CONFIG_MQTT_HOSTNAME: Final = "ZM_MQTT_HOSTNAME"
 CONFIG_GO2RTC_PATH: Final = "ZM_GO2RTC_PATH"
 
 SIGNAL_MQTT_EVENT: Final = "zoneminder_mqtt_event_{}"
+#: A monitor's live alarm state from the event stream: idle, prealarm, alarm, alert.
+SIGNAL_ALARM_STATE: Final = "zoneminder_alarm_state_{}"
 
 # -- Legacy CakePHP API endpoints (joined with host) -------------------------
 
@@ -68,6 +72,8 @@ API_EVENTS: Final = "api/events.json"
 API_EVENT: Final = "api/events/{event_id}.json"
 API_CONTROLS: Final = "api/controls/{monitor_id}.json"
 API_ALARM_ON: Final = "api/monitors/alarm/id:{monitor_id}/command:on.json"
+API_STATES: Final = "api/states.json"
+API_STATE_CHANGE: Final = "api/states/change/{name}.json"
 API_ALARM_OFF: Final = "api/monitors/alarm/id:{monitor_id}/command:off.json"
 STREAM_PATH: Final = "cgi-bin/nph-zms"
 EVENT_VIDEO_PATH: Final = "api/events/{event_id}.mp4"
@@ -82,12 +88,15 @@ V3_ME: Final = "api/v3/me"
 V3_CONFIGS: Final = "api/v3/configs"
 
 V3_MONITORS: Final = "api/v3/monitors"
+V3_STATES: Final = "api/v3/states"
+V3_STATE: Final = "api/v3/states/{state_id}"
 V3_MONITOR: Final = "api/v3/monitors/{monitor_id}"
 V3_MONITOR_ALARM: Final = "api/v3/monitors/{monitor_id}/alarm"
 V3_MONITOR_SNAPSHOT: Final = "api/v3/monitors/{monitor_id}/snapshot"
 V3_MONITOR_STATUS: Final = "api/v3/monitor-status"
 
 V3_EVENTS: Final = "api/v3/events"
+V3_EVENT_STREAM: Final = "api/v3/events/stream"
 V3_EVENT: Final = "api/v3/events/{event_id}"
 V3_EVENT_INFO: Final = "api/v3/events/{event_id}/info"
 V3_EVENT_VIDEO: Final = "api/v3/events/{event_id}/video"
@@ -100,6 +109,9 @@ V3_LIVE_START: Final = "api/v3/live/{monitor_id}/start"
 V3_LIVE_STOP: Final = "api/v3/live/{monitor_id}/stop"
 V3_LIVE_STATS: Final = "api/v3/live/{monitor_id}/stats"
 V3_LIVE_HLS_MASTER: Final = "api/v3/live/{monitor_id}/hls/master.m3u8"
+V3_LIVE_HLS_PLAYLIST: Final = "api/v3/live/{monitor_id}/hls/live.m3u8"
+V3_LIVE_RTSP_LINK: Final = "api/v3/live/{monitor_id}/rtsp/link"
+V3_LIVE_WHEP: Final = "api/v3/live/{monitor_id}/webrtc/whep"
 V3_LIVE_WEBRTC_WS: Final = "api/v3/live/{monitor_id}/webrtc/ws"
 
 V3_PTZ_MOVE: Final = "api/v3/ptz/monitors/{monitor_id}/move/{direction}"
@@ -174,6 +186,7 @@ SERVICE_TRIGGER_EVENT: Final = "trigger_event"
 SERVICE_CANCEL_EVENT: Final = "cancel_event"
 SERVICE_PTZ: Final = "ptz"
 SERVICE_SET_MONITOR_STATE: Final = "set_monitor_state"
+SERVICE_SAVE_RUN_STATE: Final = "save_run_state"
 
 #: Backend-agnostic PTZ vocabulary accepted by the ptz service.
 PTZ_MOVE_COMMANDS: Final = [
@@ -200,6 +213,7 @@ PTZ_COMMANDS: Final = [
 # -- Streaming ---------------------------------------------------------------
 
 STREAM_TYPE_HLS: Final = "hls"
+STREAM_TYPE_RTSP: Final = "rtsp"
 STREAM_TYPE_GO2RTC: Final = "go2rtc"
 STREAM_TYPE_MJPEG: Final = "mjpeg"
 

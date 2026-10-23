@@ -148,12 +148,38 @@ async def test_reauth_rejects_bad_password(
 async def test_reconfigure_changes_host(
     hass: HomeAssistant, zm_api: aioresponses, config_entry: MockConfigEntry
 ) -> None:
-    """Reconfiguring rejects an address belonging to a different server."""
+    """Reconfiguring can move the entry to a new address, e.g. the zm-api port."""
     config_entry.add_to_hass(hass)
     result = await config_entry.start_reconfigure_flow(hass)
     assert result["step_id"] == "reconfigure"
 
-    # A different address that answers is still the wrong server for this entry.
+    with patch(
+        "custom_components.zoneminder.config_flow._async_validate",
+        return_value={"version": "1.39.22", "monitor_count": 3},
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {**USER_INPUT, CONF_HOST: "http://new-server:8080/"}
+        )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.data[CONF_HOST] == "http://new-server:8080"
+    assert config_entry.unique_id == "http://new-server:8080"
+    assert config_entry.title == "ZoneMinder (http://new-server:8080)"
+
+
+async def test_reconfigure_rejects_address_of_other_entry(
+    hass: HomeAssistant, zm_api: aioresponses, config_entry: MockConfigEntry
+) -> None:
+    """Reconfiguring can't take over an address another entry already uses."""
+    config_entry.add_to_hass(hass)
+    other = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://other-server:8080",
+        data={**USER_INPUT, CONF_HOST: "http://other-server:8080"},
+    )
+    other.add_to_hass(hass)
+    result = await config_entry.start_reconfigure_flow(hass)
+
     with patch(
         "custom_components.zoneminder.config_flow._async_validate",
         return_value={"version": "1.39.22", "monitor_count": 3},
@@ -162,7 +188,7 @@ async def test_reconfigure_changes_host(
             result["flow_id"], {**USER_INPUT, CONF_HOST: "http://other-server:8080"}
         )
     assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "wrong_server"
+    assert result["reason"] == "already_configured"
 
 
 async def test_options_flow_stores_settings(
@@ -203,3 +229,41 @@ async def test_options_change_triggers_reload(
 def test_entry_data_shape() -> None:
     """The fixture entry keeps the keys the integration reads."""
     assert set(ENTRY_DATA) >= {CONF_BACKEND, CONF_HOST, CONF_USERNAME, CONF_PASSWORD}
+
+
+async def test_yaml_from_the_core_integration_is_imported(hass: HomeAssistant) -> None:
+    """Old `zoneminder:` YAML becomes a config entry, with a nudge to delete it."""
+    from homeassistant.helpers import issue_registry as ir
+    from homeassistant.setup import async_setup_component
+
+    with (
+        patch(
+            "custom_components.zoneminder.config_flow._async_validate",
+            return_value={"version": "1.36.33", "monitor_count": 2},
+        ),
+        patch("custom_components.zoneminder.async_setup_entry", return_value=True),
+    ):
+        assert await async_setup_component(
+            hass,
+            DOMAIN,
+            {
+                DOMAIN: [
+                    {
+                        "host": "zm.local",
+                        "path": "/zm/",
+                        "ssl": True,
+                        "username": "admin",
+                        "password": "hunter2",
+                    }
+                ]
+            },
+        )
+        await hass.async_block_till_done()
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    assert len(entries) == 1
+    assert entries[0].data["host"] == "https://zm.local/zm"
+    assert entries[0].data["backend"] == "legacy"
+    assert ir.async_get(hass).async_get_issue(
+        "homeassistant", "deprecated_yaml_zoneminder"
+    )

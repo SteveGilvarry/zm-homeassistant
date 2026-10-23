@@ -5,41 +5,116 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.const import CONF_HOST, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import SOURCE_IMPORT
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_PATH,
+    CONF_SSL,
+    CONF_USERNAME,
+    CONF_VERIFY_SSL,
+    Platform,
+)
+from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
+import voluptuous as vol
 
 from .api import client_from_entry_data
 from .const import (
+    BACKEND_V3,
     CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC,
+    CONF_NOTIFY_KEY,
     CONFIG_MQTT_TOPIC_PREFIX,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
 )
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry, ZoneMinderRuntimeData
+from .entity import monitor_device_id, server_device_id
+from .event_watcher import ZoneMinderEventWatcher
 from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
+from .frontend import async_register_card
 from .http import async_register_proxy, generate_proxy_secret
 from .mqtt import ZoneMinderMQTTListener
+from .notify_media import async_register_event_media, generate_notify_key
 from .repairs import async_check_issues
 from .services import async_setup_services
+from .webrtc import ZoneMinderWebRTCProvider
+from .websocket_api import async_setup_websocket
 
 _LOGGER = logging.getLogger(__name__)
+
+#: The old core integration's YAML, accepted only so it can be imported.
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.All(
+            cv.ensure_list,
+            [
+                vol.Schema(
+                    {
+                        vol.Required(CONF_HOST): cv.string,
+                        vol.Optional(CONF_PATH, default="/zm/"): cv.string,
+                        vol.Optional("path_zms"): cv.string,
+                        vol.Optional(CONF_SSL, default=False): cv.boolean,
+                        vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
+                        vol.Optional(CONF_USERNAME): cv.string,
+                        vol.Optional(CONF_PASSWORD): cv.string,
+                    },
+                    extra=vol.ALLOW_EXTRA,
+                )
+            ],
+        )
+    },
+    extra=vol.ALLOW_EXTRA,
+)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.CAMERA,
     Platform.EVENT,
+    Platform.IMAGE,
     Platform.SELECT,
     Platform.SENSOR,
 ]
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Import servers from the old core integration's YAML, once."""
+    for server in config.get(DOMAIN, []):
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": SOURCE_IMPORT}, data=server
+            )
+        )
+    if DOMAIN in config:
+        ir.async_create_issue(
+            hass,
+            HOMEASSISTANT_DOMAIN,
+            f"deprecated_yaml_{DOMAIN}",
+            is_fixable=False,
+            issue_domain=DOMAIN,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="deprecated_yaml",
+            translation_placeholders={
+                "domain": DOMAIN,
+                "integration_title": "ZoneMinder",
+            },
+        )
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -> bool:
     """Set up ZoneMinder from a config entry."""
+    if CONF_NOTIFY_KEY not in entry.data:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_NOTIFY_KEY: generate_notify_key()}
+        )
+
     session = async_get_clientsession(hass)
     api = client_from_entry_data(entry.data, session)
 
@@ -60,7 +135,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -
         proxy_secret=generate_proxy_secret(),
     )
 
+    if coordinator.api.backend == BACKEND_V3:
+        entry.runtime_data.webrtc_provider = ZoneMinderWebRTCProvider(hass, api)
+
     async_register_proxy(hass)
+    async_register_event_media(hass)
+    await async_register_card(hass)
     await _async_load_ptz_presets(entry)
 
     if entry.options.get(CONF_MQTT_ENABLED, True):
@@ -76,7 +156,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -
             )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Runs alongside MQTT too: it covers a broker that's down or misconfigured.
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    entry.runtime_data.event_watcher = watcher
+    watcher.async_start()
+    entry.async_on_unload(watcher.async_stop)
     async_setup_services(hass)
+    async_setup_websocket(hass)
     async_check_issues(hass, entry)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
@@ -137,12 +224,17 @@ def _resolve_mqtt_topic(
 async def async_remove_config_entry_device(
     hass: HomeAssistant, entry: ZoneMinderConfigEntry, device_entry
 ) -> bool:
-    """Allow removing a device whose monitor no longer exists."""
-    monitor_ids = {
-        str(monitor_id) for monitor_id in entry.runtime_data.coordinator.data.monitors
+    """Allow removing any device the integration no longer provides.
+
+    That covers monitors deleted in ZoneMinder and devices left over from
+    older identifier schemes (bare monitor ids, before entry-scoped ids).
+    """
+    live_ids = {server_device_id(entry)} | {
+        monitor_device_id(entry, monitor_id)
+        for monitor_id in entry.runtime_data.coordinator.data.monitors
     }
     return not any(
-        identifier[1] in monitor_ids
+        identifier[1] in live_ids
         for identifier in device_entry.identifiers
         if identifier[0] == DOMAIN
     )

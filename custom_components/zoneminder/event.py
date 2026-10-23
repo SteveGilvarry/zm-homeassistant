@@ -22,11 +22,14 @@ from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity
 from .models import Monitor
 from .mqtt import ZoneMinderMQTTEvent
+from .notify_media import async_event_media_urls
 
 _LOGGER = logging.getLogger(__name__)
 
 EVENT_MOTION = "motion"
 EVENT_RECORDING = "recording"
+#: Fired when an event closes, so a notification can be updated with its clip.
+EVENT_ENDED = "ended"
 
 
 async def async_setup_entry(
@@ -46,7 +49,7 @@ class ZoneMinderEventEntity(ZoneMinderMonitorEntity, EventEntity):
     """Fires when ZoneMinder opens an event on a monitor."""
 
     _attr_device_class = EventDeviceClass.MOTION
-    _attr_event_types = [EVENT_MOTION, EVENT_RECORDING]
+    _attr_event_types = [EVENT_MOTION, EVENT_RECORDING, EVENT_ENDED]
     _attr_translation_key = "event"
 
     def __init__(
@@ -71,21 +74,24 @@ class ZoneMinderEventEntity(ZoneMinderMonitorEntity, EventEntity):
 
     @callback
     def _handle_mqtt_event(self, event: ZoneMinderMQTTEvent) -> None:
-        """Fire when a new event opens."""
-        if not event.started:
+        """Fire when an event opens, and again when it closes."""
+        attributes = {
+            "event_id": event.event_id,
+            "monitor_id": event.monitor_id,
+            "cause": event.cause,
+            "detected_objects": event.labels,
+            **async_event_media_urls(self.entry, event.event_id),
+        }
+        if event.started:
+            monitor = self.monitor
+            analysing = monitor.is_analysing if monitor else False
+            continuous = (event.cause or "").lower() == "continuous"
+            event_type = (
+                EVENT_MOTION if analysing and not continuous else EVENT_RECORDING
+            )
+        elif event.action == "end":
+            event_type = EVENT_ENDED
+        else:
             return
-
-        monitor = self.monitor
-        analysing = monitor.is_analysing if monitor else False
-        event_type = EVENT_MOTION if analysing else EVENT_RECORDING
-
-        self._trigger_event(
-            event_type,
-            {
-                "event_id": event.event_id,
-                "monitor_id": event.monitor_id,
-                "cause": event.cause,
-                "detected_objects": event.labels,
-            },
-        )
+        self._trigger_event(event_type, attributes)
         self.async_write_ha_state()

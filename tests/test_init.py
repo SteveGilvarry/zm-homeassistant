@@ -86,6 +86,33 @@ async def test_monitors_hang_off_a_server_device(
     assert monitor.via_device_id == server.id
 
 
+async def test_only_stale_devices_can_be_removed(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """Leftovers can be deleted from the UI, live devices can't."""
+    from custom_components.zoneminder import async_remove_config_entry_device
+
+    devices = dr.async_get(hass)
+    entry = setup_integration
+
+    # A device from the old identifier scheme (bare monitor id 1), whose
+    # monitor still exists under the entry-scoped id.
+    stale = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "1")}
+    )
+    # A monitor that has since been deleted in ZoneMinder.
+    deleted = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, f"{entry.entry_id}_99")}
+    )
+    live = devices.async_get_device(identifiers={(DOMAIN, f"{entry.entry_id}_1")})
+    server = devices.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+
+    assert await async_remove_config_entry_device(hass, entry, stale)
+    assert await async_remove_config_entry_device(hass, entry, deleted)
+    assert not await async_remove_config_entry_device(hass, entry, live)
+    assert not await async_remove_config_entry_device(hass, entry, server)
+
+
 async def test_unique_ids_are_scoped_to_the_entry(
     hass: HomeAssistant, setup_integration: MockConfigEntry
 ) -> None:
@@ -130,3 +157,26 @@ async def test_ptz_presets_become_buttons(
     """Stored PTZ presets are exposed as buttons."""
     assert setup_integration.runtime_data.ptz_presets == {3: {1: "Front gate"}}
     assert hass.states.get("button.gate_front_gate") is not None
+
+
+async def test_card_ships_with_the_integration(
+    hass: HomeAssistant, config_entry: MockConfigEntry, zm_api, hass_client
+) -> None:
+    """The card is served and added to every dashboard without a manual resource."""
+    from custom_components.zoneminder.frontend import CARD_URL
+
+    hass.config.components.add("frontend")
+    config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.frontend.add_extra_js_url", create=True
+    ) as add_js:
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    add_js.assert_called_once()
+    assert add_js.call_args.args[1].startswith(f"{CARD_URL}?v=")
+
+    client = await hass_client()
+    response = await client.get(CARD_URL)
+    assert response.status == 200
+    assert "zoneminder-card" in await response.text()

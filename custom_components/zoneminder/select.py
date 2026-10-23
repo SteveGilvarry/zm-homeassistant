@@ -24,7 +24,7 @@ from .const import (
 )
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
-from .entity import ZoneMinderMonitorEntity
+from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
 from .models import Monitor
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,11 +73,49 @@ async def async_setup_entry(
 ) -> None:
     """Set up the monitor mode selects."""
     coordinator = entry.runtime_data.coordinator
-    async_add_entities(
+    entities: list[SelectEntity] = [
         ZoneMinderModeSelect(coordinator, entry, monitor, description)
         for monitor in coordinator.data.monitors.values()
         for description in SELECTS
-    )
+    ]
+    # ZoneMinder always has "default"; a select with one option is noise.
+    if len(coordinator.data.run_states) >= 2:
+        entities.append(ZoneMinderRunStateSelect(coordinator, entry))
+    async_add_entities(entities)
+
+
+class ZoneMinderRunStateSelect(ZoneMinderServerEntity, SelectEntity):
+    """The server's run state: a saved set of modes, such as Home or Away.
+
+    Switching it changes every camera at once, which is what presence-based
+    arming automations want.
+    """
+
+    _attr_translation_key = "run_state"
+
+    def __init__(
+        self,
+        coordinator: ZoneMinderDataUpdateCoordinator,
+        entry: ZoneMinderConfigEntry,
+    ) -> None:
+        """Initialize the select."""
+        super().__init__(coordinator, entry, "run_state")
+
+    @property
+    def options(self) -> list[str]:
+        """Return the saved run states."""
+        return [state.name for state in self.coordinator.data.run_states]
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the active run state, if ZoneMinder marks one."""
+        return next(
+            (s.name for s in self.coordinator.data.run_states if s.active), None
+        )
+
+    async def async_select_option(self, option: str) -> None:
+        """Switch run state."""
+        await self.coordinator.async_set_run_state(option)
 
 
 class ZoneMinderModeSelect(ZoneMinderMonitorEntity, SelectEntity):

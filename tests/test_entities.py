@@ -103,6 +103,101 @@ async def test_camera_stream_goes_through_the_proxy(
     assert source.endswith("api/v3/live/1/hls/master.m3u8")
 
 
+async def test_stream_waits_for_the_first_segment(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """A fresh live session is handed over only once it has video to play.
+
+    Home Assistant's stream worker gives up on an empty playlist with
+    "Stream has no video", which is what a just-started session serves.
+    """
+    from homeassistant.components.camera import async_get_stream_source
+
+    from .conftest import _url, register_zm_api
+
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        # Registered first, so these two answers are served before the
+        # fixture's ready playlist.
+        empty = "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:5\n"
+        for _ in range(2):
+            mocked.get(_url(r"api/v3/live/1/hls/live\.m3u8"), body=empty)
+        register_zm_api(mocked)
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        with patch("custom_components.zoneminder.client.v3._FIRST_SEGMENT_POLL", 0):
+            source = await async_get_stream_source(hass, "camera.driveway")
+
+        polls = [
+            key
+            for key in mocked.requests
+            if str(key[1]).endswith("api/v3/live/1/hls/live.m3u8")
+        ]
+        assert source is not None
+        assert len(mocked.requests[polls[0]]) == 3
+
+
+async def test_stream_prefers_a_signed_rtsp_link(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """With RTSP on, cameras hand Home Assistant zm-api's signed link.
+
+    The link is reused, not re-minted on every stream start.
+    """
+    from homeassistant.components.camera import async_get_stream_source
+
+    from .conftest import _url, register_zm_api
+
+    link = "rtsp://zm.example:8554/live/1?st=signed"
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        mocked.post(
+            _url(r"api/v3/live/1/rtsp/link"),
+            payload={
+                "url": link,
+                "tls_url": None,
+                "token": "signed",
+                "expires_at": 4102444800,  # 2100-01-01
+            },
+            repeat=True,
+        )
+        register_zm_api(mocked)
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        first = await async_get_stream_source(hass, "camera.driveway")
+        second = await async_get_stream_source(hass, "camera.driveway")
+
+        mints = [
+            calls
+            for key, calls in mocked.requests.items()
+            if key[0] == "POST" and str(key[1]).endswith("live/1/rtsp/link")
+        ]
+
+    assert first == second == link
+    assert len(mints[0]) == 1
+
+
+async def test_stream_falls_back_to_hls_when_rtsp_is_off(
+    hass: HomeAssistant, setup_integration: MockConfigEntry, zm_api: aioresponses
+) -> None:
+    """A 503 from the link endpoint means HLS, and we don't keep asking."""
+    from homeassistant.components.camera import async_get_stream_source
+
+    first = await async_get_stream_source(hass, "camera.driveway")
+    await async_get_stream_source(hass, "camera.driveway")
+
+    assert first is not None
+    assert first.endswith("api/v3/live/1/hls/master.m3u8")
+    mints = [
+        calls
+        for key, calls in zm_api.requests.items()
+        if key[0] == "POST" and "rtsp/link" in str(key[1])
+    ]
+    assert sum(len(calls) for calls in mints) == 1
+
+
 async def test_camera_attributes(
     hass: HomeAssistant, setup_integration: MockConfigEntry
 ) -> None:
@@ -241,3 +336,72 @@ async def test_diagnostics_redact_secrets(
     assert "admin:secret@" not in dumped
     assert "**redacted**" in dumped
     assert diagnostics["server"]["version"] == "1.39.22"
+
+
+async def test_a_camera_that_never_recorded_reads_zero(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """zm-api has no summary for a monitor without events: that's 0, not unknown."""
+    from .conftest import _url, register_zm_api
+
+    with aioresponses(passthrough=["http://127.0.0.1"]) as mocked:
+        mocked.get(_url(r"api/v3/event-summaries/3"), status=404, repeat=True)
+        register_zm_api(mocked)
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.gate_events_today").state == "0"
+    assert hass.states.get("sensor.gate_recording_storage").state == "0.0"
+    assert hass.states.get("sensor.driveway_events_today").state == "85"
+
+
+async def test_continuous_chunks_are_not_motion(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """An analysing camera that also records continuously isn't always moving."""
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.zoneminder.const import SIGNAL_MQTT_EVENT
+    from custom_components.zoneminder.mqtt import ZoneMinderMQTTEvent
+
+    async_dispatcher_send(
+        hass,
+        SIGNAL_MQTT_EVENT.format(2),
+        ZoneMinderMQTTEvent(
+            monitor_id=2, event_id=903, action="start", cause="Continuous"
+        ),
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get("binary_sensor.back_door_motion").state == "off"
+    assert hass.states.get("event.back_door_event").attributes["event_type"] == (
+        "recording"
+    )
+
+
+async def test_latest_event_image(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    zm_api: aioresponses,
+    hass_client,
+) -> None:
+    """Each camera shows its latest event's picture; motion wins where analysed."""
+    zm_api.get(
+        f"{HOST}/api/v3/events/300/thumbnail",
+        body=b"\xff\xd8driveway",
+        content_type="image/jpeg",
+        repeat=True,
+    )
+    driveway = hass.states.get("image.driveway_latest_event")
+    assert driveway.attributes["event_id"] == 300
+    # Back door analyses, so its latest *motion* (298) is shown.
+    assert hass.states.get("image.back_door_latest_event").attributes["event_id"] == 298
+
+    # A camera with no events has nothing to show yet.
+    assert hass.states.get("image.gate_latest_event").state == "unavailable"
+
+    client = await hass_client()
+    response = await client.get(driveway.attributes["entity_picture"])
+    assert response.status == 200
+    assert await response.read() == b"\xff\xd8driveway"

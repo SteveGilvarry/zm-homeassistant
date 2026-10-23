@@ -21,8 +21,10 @@ from .const import (
     EVENT_SUMMARY,
     EVENTS,
     HOST,
+    LIVE_PLAYLIST,
     MONITOR_STATUS,
     MONITORS,
+    RUN_STATES,
     STORAGE,
     SYSTEM_STATUS,
     VERSION_RESPONSE,
@@ -100,6 +102,7 @@ def register_zm_api(
     mocked.get(_url("api/v3/system/status"), payload=SYSTEM_STATUS, repeat=True)
     mocked.get(_url("api/v3/storage"), payload=paginated(STORAGE), repeat=True)
     mocked.get(_url("api/v3/configs"), payload=paginated(CONFIGS), repeat=True)
+    mocked.get(_url("api/v3/states"), payload=paginated(RUN_STATES), repeat=True)
     mocked.get(
         _url(r"api/v3/control_presets"),
         payload=paginated([{"monitor_id": 3, "preset": 1, "label": "Front gate"}]),
@@ -110,6 +113,16 @@ def register_zm_api(
         payload={"status": "started"},
         repeat=True,
     )
+    mocked.get(
+        _url(r"api/v3/live/\d+/hls/live\.m3u8"),
+        body=LIVE_PLAYLIST,
+        content_type="application/vnd.apple.mpegurl",
+        repeat=True,
+    )
+    # Servers before the event stream answer 404 and the integration polls.
+    mocked.get(_url("api/v3/events/stream"), status=404, repeat=True)
+    # RTSP is off by default on zm-api, which answers the link request with 503.
+    mocked.post(_url(r"api/v3/live/\d+/rtsp/link"), status=503, repeat=True)
 
 
 @pytest.fixture

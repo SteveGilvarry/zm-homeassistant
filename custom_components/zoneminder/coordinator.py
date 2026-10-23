@@ -24,7 +24,7 @@ from .const import (
     SERVER_INFO_INTERVAL,
 )
 from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
-from .models import Event, EventSummary, Monitor, MonitorStatus, ServerInfo
+from .models import Event, EventSummary, Monitor, MonitorStatus, RunState, ServerInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class ZoneMinderData:
     summaries: dict[int, EventSummary] = field(default_factory=dict)
     server: ServerInfo = field(default_factory=ServerInfo)
     configs: dict[str, str] = field(default_factory=dict)
+    run_states: list[RunState] = field(default_factory=list)
 
     def latest_event(self, monitor_id: int) -> Event | None:
         """Return the most recent event for a monitor."""
@@ -72,6 +73,7 @@ class ZoneMinderDataUpdateCoordinator(DataUpdateCoordinator[ZoneMinderData]):
         self._last_server_info: datetime | None = None
         self._server_info = ServerInfo()
         self._configs: dict[str, str] = {}
+        self._run_states: list[RunState] = []
 
         super().__init__(
             hass,
@@ -105,6 +107,7 @@ class ZoneMinderDataUpdateCoordinator(DataUpdateCoordinator[ZoneMinderData]):
                 summaries=summaries,
                 server=self._server_info,
                 configs=self._configs,
+                run_states=self._run_states,
             )
 
         except ZMAuthenticationError as err:
@@ -164,6 +167,8 @@ class ZoneMinderDataUpdateCoordinator(DataUpdateCoordinator[ZoneMinderData]):
             except (ZMConnectionError, ZMApiError) as err:
                 _LOGGER.debug("Configuration unavailable: %s", err)
 
+        await self._async_fetch_run_states()
+
         summaries: dict[int, EventSummary] = {}
         for monitor_id in monitors:
             summary = await self.api.get_event_summary(monitor_id)
@@ -171,7 +176,37 @@ class ZoneMinderDataUpdateCoordinator(DataUpdateCoordinator[ZoneMinderData]):
                 summaries[monitor_id] = summary
         return summaries
 
+    async def _async_fetch_run_states(self) -> None:
+        try:
+            self._run_states = await self.api.get_run_states()
+        except (ZMConnectionError, ZMApiError) as err:
+            _LOGGER.debug("Run states unavailable: %s", err)
+
     # -- Commands ------------------------------------------------------------
+
+    async def async_save_run_state(self, name: str) -> None:
+        """Save every monitor's current modes as a named run state."""
+        definition = ",".join(
+            f"{m.id}:{m.capturing}:{m.analysing}:{m.recording}"
+            for m in sorted(self.data.monitors.values(), key=lambda m: m.id)
+        )
+        had_select = len(self._run_states) >= 2
+        await self.api.save_run_state(name, definition)
+        await self._async_fetch_run_states()
+        if not had_select and len(self._run_states) >= 2:
+            # The run state select only exists once there is a choice to make.
+            self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
+        else:
+            await self.async_request_refresh()
+
+    async def async_set_run_state(self, name: str) -> None:
+        """Switch the server to a named run state and refresh."""
+        state = next((s for s in self._run_states if s.name == name), None)
+        if state is None:
+            raise ZMApiError(f"No run state called {name}")
+        await self.api.set_run_state(state)
+        await self._async_fetch_run_states()
+        await self.async_request_refresh()
 
     async def async_set_monitor_state(self, monitor_id: int, **fields: str) -> None:
         """Change a monitor's mode and refresh."""

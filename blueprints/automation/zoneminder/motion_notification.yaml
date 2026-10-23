@@ -1,52 +1,68 @@
 blueprint:
-  name: ZoneMinder motion notification
+  name: ZoneMinder event notification
   description: >-
-    Sends a phone notification with a camera snapshot when a ZoneMinder monitor
-    detects motion.
+    Sends a phone notification with a picture when a ZoneMinder camera sees
+    motion. When the recording finishes, the same notification is updated with
+    a button that plays the clip.
 
-    Motion only fires on monitors that have analysis switched on. A monitor set
-    to record continuously opens events constantly without ever detecting
-    motion, so this will stay quiet on those until you set Analysing to Always.
+
+    Motion only fires on cameras with analysis switched on. A camera that
+    records continuously opens a new event every few minutes without ever
+    detecting motion, so pick "Recording" below only if you really want those.
+
+
+    The picture and clip links open that one event and nothing else, and keep
+    working after Home Assistant restarts.
   domain: automation
   source_url: https://github.com/stevengilvarry/zmha/blob/main/blueprints/automation/zoneminder/motion_notification.yaml
   input:
-    motion_sensor:
-      name: Motion sensor
-      description: The ZoneMinder motion sensor to watch.
+    cameras:
+      name: Cameras
+      description: The ZoneMinder event entities to watch, one per camera.
       selector:
         entity:
+          multiple: true
           filter:
             - integration: zoneminder
-              domain: binary_sensor
-    camera:
-      name: Camera
-      description: The camera to take the snapshot from, usually the same monitor.
+              domain: event
+    event_types:
+      name: Notify on
+      default: [motion]
       selector:
-        entity:
-          filter:
-            - integration: zoneminder
-              domain: camera
+        select:
+          multiple: true
+          options:
+            - label: Motion
+              value: motion
+            - label: Recording (continuous cameras open one every few minutes)
+              value: recording
     notify_target:
-      name: Notification service
-      description: >-
-        The notify service to call, such as notify.mobile_app_your_phone.
+      name: Notification action
+      description: The notify action to call, such as notify.mobile_app_your_phone.
       default: notify.notify
       selector:
         text:
     title:
       name: Title
-      default: Motion detected
+      description: "Supports templates: {{ camera_name }} and {{ objects }}."
+      default: "{{ camera_name }}"
       selector:
         text:
     message:
       name: Message
-      description: Supports templates. {{ camera_name }} is the camera's name.
-      default: "{{ camera_name }} saw movement"
+      description: "Supports templates: {{ camera_name }}, {{ what }}, {{ cause }} and {{ objects }}."
+      default: "{{ what }} at {{ now().strftime('%H:%M') }}"
+      selector:
+        text:
+    open_path:
+      name: Open when tapped
+      description: The Home Assistant page the notification opens.
+      default: /lovelace/0
       selector:
         text:
     cooldown:
       name: Cooldown
-      description: How long to stay quiet after a notification, per camera.
+      description: How long to stay quiet after a notification.
       default: 120
       selector:
         number:
@@ -55,10 +71,8 @@ blueprint:
           unit_of_measurement: seconds
           mode: slider
     only_when_away:
-      name: Only notify when away
-      description: >-
-        Optionally skip notifications while someone is home. Leave empty to
-        always notify.
+      name: Only notify when these are away
+      description: Leave empty to always notify.
       default: []
       selector:
         entity:
@@ -67,50 +81,91 @@ blueprint:
             - domain: person
             - domain: device_tracker
 
-mode: single
+# Each event waits for its own clip, so several can be in flight at once.
+mode: parallel
+max: 10
 
 variables:
-  camera_entity: !input camera
-  camera_name: "{{ state_attr(camera_entity, 'friendly_name') or camera_entity }}"
+  wanted_types: !input event_types
   presence: !input only_when_away
+  cooldown: !input cooldown
+  open_path: !input open_path
 
-trigger:
-  - platform: state
-    entity_id: !input motion_sensor
-    from: "off"
-    to: "on"
+triggers:
+  - trigger: state
+    entity_id: !input cameras
+    # An event entity that has never fired is "unknown", so that is a fine
+    # place to come from. Startup is kept quiet by the integration itself.
+    not_from: [unavailable]
+    not_to: [unavailable, unknown]
 
-condition:
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.event_type in wanted_types }}"
   - condition: template
     value_template: >-
       {{ presence | length == 0
          or presence | select('is_state', 'home') | list | length == 0 }}
+  - condition: template
+    value_template: >-
+      {% set last = this.attributes.last_triggered %}
+      {{ last is none or (now() - last).total_seconds() > cooldown }}
 
-action:
+actions:
   - variables:
-      snapshot: "/config/www/zoneminder_{{ camera_entity.split('.')[1] }}.jpg"
-  - service: camera.snapshot
-    target:
-      entity_id: !input camera
-    data:
-      filename: "{{ snapshot }}"
-    continue_on_error: true
-  - service: !input notify_target
+      attrs: "{{ trigger.to_state.attributes }}"
+      event_id: "{{ attrs.event_id }}"
+      camera_name: >-
+        {{ (device_attr(device_id(trigger.entity_id), 'name_by_user')
+            or device_attr(device_id(trigger.entity_id), 'name')
+            or trigger.to_state.name) }}
+      cause: "{{ attrs.cause or '' }}"
+      objects: "{{ (attrs.detected_objects or []) | join(', ') }}"
+      # "Person, car", or failing that what kind of event this is.
+      what: >-
+        {{ (objects or ('Motion' if attrs.event_type == 'motion' else 'Recording'))
+           | capitalize }}
+      tag: "zoneminder-{{ event_id }}"
+      thumbnail: "{{ attrs.thumbnail_url }}"
+      clip: "{{ attrs.clip_url }}"
+  - action: !input notify_target
     data:
       title: !input title
       message: !input message
       data:
-        image: "{{ snapshot | replace('/config/www', '/local') }}"
-        entity_id: "{{ camera_entity }}"
-        # Android groups by channel; iOS uses the thread id.
+        tag: "{{ tag }}"
+        group: zoneminder
         channel: ZoneMinder
-        thread-id: "{{ camera_entity }}"
+        thread-id: "{{ trigger.entity_id }}"
+        image: "{{ thumbnail }}"
+        url: "{{ open_path }}"
+        clickAction: "{{ open_path }}"
+  # The clip only exists once ZoneMinder closes the event.
+  - wait_for_trigger:
+      - trigger: template
+        value_template: >-
+          {{ state_attr(trigger.entity_id, 'event_type') == 'ended'
+             and state_attr(trigger.entity_id, 'event_id') == event_id }}
+    timeout: "00:30:00"
+    continue_on_timeout: false
+  - action: !input notify_target
+    data:
+      title: !input title
+      message: !input message
+      data:
+        tag: "{{ tag }}"
+        group: zoneminder
+        channel: ZoneMinder
+        thread-id: "{{ trigger.entity_id }}"
+        image: "{{ thumbnail }}"
+        video: "{{ clip }}"
+        url: "{{ open_path }}"
+        clickAction: "{{ open_path }}"
+        # Updating a notification shouldn't buzz the phone a second time.
+        alert_once: true
+        push:
+          interruption-level: passive
         actions:
           - action: URI
-            title: View live
-            uri: "{{ '/lovelace/cameras' }}"
-          - action: URI
-            title: Recordings
-            uri: /media-browser
-  - delay:
-      seconds: !input cooldown
+            title: Play clip
+            uri: "{{ clip }}"

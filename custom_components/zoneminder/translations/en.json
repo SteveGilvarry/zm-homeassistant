@@ -13,9 +13,9 @@
           "mqtt_enabled": "Use MQTT for real-time events"
         },
         "data_description": {
-          "backend": "zm-api is the standalone REST server and is the better choice where it is available. Pick the built-in API to talk to a stock ZoneMinder install.",
-          "host": "For zm-api, the address and port it listens on, such as http://192.168.1.10:{default_port}. For the built-in API, the ZoneMinder web address including its path, such as http://192.168.1.10/zm.",
-          "mqtt_enabled": "Motion then updates in under a second instead of on the polling interval. Needs the MQTT integration and MQTT switched on in ZoneMinder."
+          "backend": "Use API v3 where it is installed: it adds live streaming, recordings and faster events. API v2 is the one built into every ZoneMinder install.",
+          "host": "For API v3, the address and port it listens on, such as http://192.168.1.10:{default_port}. For API v2, the ZoneMinder web address including its path, such as http://192.168.1.10/zm.",
+          "mqtt_enabled": "Events then arrive in under a second. Without MQTT they still arrive, within about 5 seconds. Needs the MQTT integration and MQTT switched on in ZoneMinder."
         }
       },
       "reauth_confirm": {
@@ -49,7 +49,11 @@
       "already_configured": "This ZoneMinder server is already set up.",
       "reauth_successful": "Signed in again.",
       "reconfigure_successful": "Settings updated.",
-      "wrong_server": "That address belongs to a different ZoneMinder server. Add it as a new integration instead."
+      "wrong_server": "That address belongs to a different ZoneMinder server. Add it as a new integration instead.",
+      "cannot_connect": "Could not reach the ZoneMinder server from your YAML. Check it's running, then add it under Settings > Devices & services.",
+      "invalid_auth": "The username and password in your YAML were rejected. Add the server under Settings > Devices & services instead.",
+      "api_error": "The ZoneMinder server from your YAML rejected the request. Check its API is enabled.",
+      "unknown": "Something went wrong importing ZoneMinder from YAML. The log has the details."
     }
   },
   "options": {
@@ -65,7 +69,7 @@
         "data_description": {
           "mqtt_topic": "Leave blank to use the prefix ZoneMinder reports (ZM_MQTT_TOPIC_PREFIX).",
           "scan_interval": "Leave blank to poll every 5 minutes with MQTT on, or every 30 seconds without it.",
-          "web_url": "Where the ZoneMinder web interface lives, used for the links on each device. The zm-api server usually runs on a different port."
+          "web_url": "Where the ZoneMinder web interface lives, used for the links on each device. API v3 usually runs on a different port."
         }
       }
     }
@@ -73,8 +77,8 @@
   "selector": {
     "backend": {
       "options": {
-        "v3": "zm-api (standalone REST server)",
-        "legacy": "ZoneMinder's built-in API"
+        "v3": "ZoneMinder API v3",
+        "legacy": "ZoneMinder API v2 (built in)"
       }
     },
     "ptz_command": {
@@ -131,9 +135,15 @@
   },
   "entity": {
     "binary_sensor": {
-      "motion": { "name": "Motion" },
-      "connectivity": { "name": "Camera connection" },
-      "server_running": { "name": "Running" }
+      "motion": {
+        "name": "Motion"
+      },
+      "connectivity": {
+        "name": "Camera connection"
+      },
+      "server_running": {
+        "name": "Running"
+      }
     },
     "event": {
       "event": {
@@ -142,37 +152,86 @@
           "event_type": {
             "state": {
               "motion": "Motion",
-              "recording": "Recording"
+              "recording": "Recording",
+              "ended": "Ended"
             }
           }
         }
       }
     },
     "select": {
-      "capturing": { "name": "Capturing" },
-      "analysing": { "name": "Analysing" },
-      "recording": { "name": "Recording" },
-      "decoding": { "name": "Decoding" }
+      "capturing": {
+        "name": "Capturing"
+      },
+      "analysing": {
+        "name": "Analysing"
+      },
+      "recording": {
+        "name": "Recording"
+      },
+      "decoding": {
+        "name": "Decoding"
+      },
+      "run_state": {
+        "name": "Run state"
+      }
     },
     "button": {
-      "trigger_alarm": { "name": "Trigger alarm" },
-      "cancel_alarm": { "name": "Cancel alarm" },
-      "ptz_home": { "name": "Move to home position" },
-      "ptz_stop": { "name": "Stop moving" }
+      "trigger_alarm": {
+        "name": "Trigger alarm"
+      },
+      "cancel_alarm": {
+        "name": "Cancel alarm"
+      },
+      "ptz_home": {
+        "name": "Move to home position"
+      },
+      "ptz_stop": {
+        "name": "Stop moving"
+      }
     },
     "sensor": {
-      "last_event": { "name": "Last event" },
-      "last_motion": { "name": "Last motion" },
-      "events_today": { "name": "Events today" },
-      "disk_usage": { "name": "Recording storage" },
-      "capture_fps": { "name": "Capture rate" },
-      "analysis_fps": { "name": "Analysis rate" },
-      "capture_bandwidth": { "name": "Capture bandwidth" },
-      "mode": { "name": "Mode" },
-      "server_disk_usage": { "name": "Recording storage" },
-      "server_events_today": { "name": "Events today" },
-      "server_monitors": { "name": "Monitors" },
-      "server_version": { "name": "Version" }
+      "last_event": {
+        "name": "Last event"
+      },
+      "last_motion": {
+        "name": "Last motion"
+      },
+      "events_today": {
+        "name": "Events today"
+      },
+      "disk_usage": {
+        "name": "Recording storage"
+      },
+      "capture_fps": {
+        "name": "Capture rate"
+      },
+      "analysis_fps": {
+        "name": "Analysis rate"
+      },
+      "capture_bandwidth": {
+        "name": "Capture bandwidth"
+      },
+      "mode": {
+        "name": "Mode"
+      },
+      "server_disk_usage": {
+        "name": "Recording storage"
+      },
+      "server_events_today": {
+        "name": "Events today"
+      },
+      "server_monitors": {
+        "name": "Monitors"
+      },
+      "server_version": {
+        "name": "Version"
+      }
+    },
+    "image": {
+      "latest_event": {
+        "name": "Latest event"
+      }
     }
   },
   "services": {
@@ -226,6 +285,20 @@
           "description": "How much of the stream ZoneMinder decodes. Lower settings use less CPU."
         }
       }
+    },
+    "save_run_state": {
+      "name": "Save run state",
+      "description": "Saves what every camera is capturing, analysing and recording right now as a named ZoneMinder run state, such as Home or Away. Switch between them with the Run state select.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "The run state to create. One with the same name is overwritten."
+        },
+        "config_entry_id": {
+          "name": "ZoneMinder server",
+          "description": "Only needed when you have more than one."
+        }
+      }
     }
   },
   "exceptions": {
@@ -234,6 +307,12 @@
     },
     "preset_required": {
       "message": "The 'Go to preset' command needs a preset number."
+    },
+    "pick_one_server": {
+      "message": "More than one ZoneMinder server is set up. Choose which one to save the run state on."
+    },
+    "run_states_need_v3": {
+      "message": "Saving run states needs ZoneMinder API v3. With API v2, save them in ZoneMinder's web interface."
     }
   },
   "issues": {

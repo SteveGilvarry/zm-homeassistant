@@ -18,9 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-
-from .const import SIGNAL_MQTT_EVENT
 
 if TYPE_CHECKING:
     from .coordinator import ZoneMinderDataUpdateCoordinator
@@ -116,9 +113,11 @@ class ZoneMinderMQTTListener:
             event.action,
         )
 
-        async_dispatcher_send(
-            self.hass, SIGNAL_MQTT_EVENT.format(event.monitor_id), event
-        )
+        # Imported here: event_watcher imports this module for the event type.
+        from .event_watcher import async_publish_event  # noqa: PLC0415
+
+        if not async_publish_event(self.hass, self.entry, event):
+            return
 
         # Pull the full event record so attributes catch up with the state we
         # have already published. Tied to the entry so it dies on unload.

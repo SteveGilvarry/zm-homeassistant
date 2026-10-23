@@ -1,10 +1,20 @@
 {
   "domain": "zoneminder",
   "name": "ZoneMinder",
-  "codeowners": ["@stevengilvarry"],
+  "codeowners": [
+    "@stevengilvarry"
+  ],
   "config_flow": true,
-  "dependencies": ["http", "stream"],
-  "after_dependencies": ["media_source", "mqtt"],
+  "dependencies": [
+    "http",
+    "stream",
+    "websocket_api"
+  ],
+  "after_dependencies": [
+    "frontend",
+    "media_source",
+    "mqtt"
+  ],
   "documentation": "https://github.com/stevengilvarry/zmha",
   "integration_type": "hub",
   "iot_class": "local_push",

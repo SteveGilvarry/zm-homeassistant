@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 import logging
 import re
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 
@@ -27,6 +28,8 @@ from ..const import (
     API_LOGOUT,
     API_MONITOR,
     API_MONITORS,
+    API_STATE_CHANGE,
+    API_STATES,
     API_VERSION,
     BACKEND_LEGACY,
     CONFIG_GO2RTC_PATH,
@@ -43,7 +46,7 @@ from ..exceptions import (
     ZMConnectionError,
     ZMNotSupportedError,
 )
-from ..models import Event, Monitor, ServerInfo
+from ..models import Event, Monitor, RunState, ServerInfo
 from .base import ZoneMinderClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -254,6 +257,22 @@ class ZoneMinderLegacyClient(ZoneMinderClient):
 
         await self._request(
             "POST", API_MONITOR.format(monitor_id=monitor_id), data=data
+        )
+
+    # -- Run states ----------------------------------------------------------
+
+    async def get_run_states(self) -> list[RunState]:
+        """Return the server's saved run states."""
+        response = await self._request("GET", API_STATES)
+        return [
+            RunState.from_dict(item.get("State", item))
+            for item in (response or {}).get("states", [])
+        ]
+
+    async def set_run_state(self, state: RunState) -> None:
+        """Switch run state; ZoneMinder applies it and restarts its daemons."""
+        await self._request(
+            "POST", API_STATE_CHANGE.format(name=quote(state.name, safe=""))
         )
 
     # -- Events --------------------------------------------------------------

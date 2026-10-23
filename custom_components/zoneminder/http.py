@@ -14,6 +14,7 @@ that every URI they reference also points back through the proxy.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from http import HTTPStatus
 import logging
 import re
@@ -132,52 +133,81 @@ class ZoneMinderMediaProxyView(HomeAssistantView):
             _LOGGER.warning("Refusing to proxy disallowed path: %s", upstream_path)
             return web.Response(status=HTTPStatus.FORBIDDEN)
 
-        headers = {}
-        if (range_header := request.headers.get("Range")) is not None:
-            headers["Range"] = range_header
+        return await async_stream_upstream(
+            request,
+            coordinator,
+            upstream_path,
+            rewrite=lambda body: _rewrite_playlist(
+                body, upstream_path, entry_id, secret
+            ),
+        )
 
-        try:
-            async with coordinator.api.async_stream_media(
-                upstream_path, headers
-            ) as upstream_response:
-                if upstream_response.status >= 400:
-                    _LOGGER.debug(
-                        "Upstream returned %s for %s",
-                        upstream_response.status,
-                        upstream_path,
-                    )
-                    return web.Response(status=upstream_response.status)
 
-                content_type = (upstream_response.content_type or "").lower()
-                if content_type in _PLAYLIST_TYPES or upstream_path.endswith(".m3u8"):
-                    body = await upstream_response.text()
-                    rewritten = _rewrite_playlist(body, upstream_path, entry_id, secret)
-                    return web.Response(
-                        body=rewritten.encode(),
-                        status=upstream_response.status,
-                        content_type="application/vnd.apple.mpegurl",
-                    )
+async def async_stream_upstream(
+    request: web.Request,
+    coordinator: ZoneMinderDataUpdateCoordinator,
+    upstream_path: str,
+    rewrite: Callable[[str], str] | None = None,
+) -> web.StreamResponse:
+    """Relay one authenticated upstream response to the client.
 
-                response = web.StreamResponse(
-                    status=upstream_response.status,
-                    headers={
-                        name: value
-                        for name in _PASSTHROUGH_HEADERS
-                        if (value := upstream_response.headers.get(name))
-                    },
+    Playlists are passed through ``rewrite`` so the URIs inside them can be
+    pointed back at Home Assistant. Everything else streams as it arrives.
+    """
+    headers = {}
+    if (range_header := request.headers.get("Range")) is not None:
+        headers["Range"] = range_header
+
+    try:
+        async with coordinator.api.async_stream_media(
+            upstream_path, headers
+        ) as upstream_response:
+            if upstream_response.status >= 400:
+                _LOGGER.debug(
+                    "Upstream returned %s for %s",
+                    upstream_response.status,
+                    upstream_path,
                 )
-                await response.prepare(request)
-                async for chunk in upstream_response.content.iter_chunked(_CHUNK):
-                    await response.write(chunk)
-                await response.write_eof()
-                return response
+                return web.Response(status=upstream_response.status)
 
-        except (TimeoutError, ConnectionResetError):
-            # The client hung up mid-stream, or upstream stalled. Nothing to say.
-            return web.Response(status=HTTPStatus.GATEWAY_TIMEOUT)
-        except Exception as err:  # noqa: BLE001 - never leak a traceback to the client
-            _LOGGER.error("Proxying %s failed: %s", upstream_path, err)
-            return web.Response(status=HTTPStatus.BAD_GATEWAY)
+            _LOGGER.debug(
+                "Proxying %s (%s, %s)",
+                upstream_path,
+                upstream_response.status,
+                upstream_response.content_type,
+            )
+            content_type = (upstream_response.content_type or "").lower()
+            is_playlist = content_type in _PLAYLIST_TYPES or upstream_path.endswith(
+                ".m3u8"
+            )
+            if is_playlist and rewrite is not None:
+                body = await upstream_response.text()
+                return web.Response(
+                    body=rewrite(body).encode(),
+                    status=upstream_response.status,
+                    content_type="application/vnd.apple.mpegurl",
+                )
+
+            response = web.StreamResponse(
+                status=upstream_response.status,
+                headers={
+                    name: value
+                    for name in _PASSTHROUGH_HEADERS
+                    if (value := upstream_response.headers.get(name))
+                },
+            )
+            await response.prepare(request)
+            async for chunk in upstream_response.content.iter_chunked(_CHUNK):
+                await response.write(chunk)
+            await response.write_eof()
+            return response
+
+    except (TimeoutError, ConnectionResetError):
+        # The client hung up mid-stream, or upstream stalled. Nothing to say.
+        return web.Response(status=HTTPStatus.GATEWAY_TIMEOUT)
+    except Exception as err:  # noqa: BLE001 - never leak a traceback to the client
+        _LOGGER.error("Proxying %s failed: %s", upstream_path, err)
+        return web.Response(status=HTTPStatus.BAD_GATEWAY)
 
 
 def _rewrite_playlist(body: str, upstream_path: str, entry_id: str, secret: str) -> str:

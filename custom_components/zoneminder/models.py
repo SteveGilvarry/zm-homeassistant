@@ -422,6 +422,62 @@ class StorageArea:
         )
 
 
+#: What ZoneMinder's old single "Function" means in the split fields, exactly
+#: as zmpkg.pl applies it when switching run state.
+_RUN_STATE_FUNCTIONS: dict[str, tuple[str, str, str]] = {
+    "None": ("None", "None", "None"),
+    "Monitor": ("Always", "None", "None"),
+    "Modect": ("Always", "Always", "OnMotion"),
+    "Mocord": ("Always", "Always", "OnMotion"),
+    "Record": ("Always", "Always", "Always"),
+}
+
+
+@dataclass
+class RunState:
+    """A ZoneMinder run state: a saved set of modes for every monitor."""
+
+    id: int
+    name: str
+    definition: str
+    active: bool
+
+    def monitor_modes(self) -> dict[int, tuple[str, str, str]]:
+        """Return (capturing, analysing, recording) per monitor id.
+
+        Definitions are "id:Capturing:Analysing:Recording" per monitor from
+        ZoneMinder 1.37 on, and "id:Function:Enabled" before that.
+        """
+        modes: dict[int, tuple[str, str, str]] = {}
+        for part in self.definition.split(","):
+            fields = part.strip().split(":")
+            if not fields[0].isdigit():
+                continue
+            monitor_id = int(fields[0])
+            if len(fields) == 4:
+                modes[monitor_id] = (fields[1], fields[2], fields[3])
+            elif len(fields) == 3:
+                function, enabled = fields[1], fields[2]
+                modes[monitor_id] = (
+                    _RUN_STATE_FUNCTIONS["None"]
+                    if enabled in ("0", "")
+                    else _RUN_STATE_FUNCTIONS.get(
+                        function, _RUN_STATE_FUNCTIONS["Mocord"]
+                    )
+                )
+        return modes
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RunState:
+        """Build from either API: v3 snake_case or v2 CamelCase."""
+        return cls(
+            id=_to_int(data.get("id", data.get("Id"))),
+            name=str(data.get("name", data.get("Name")) or ""),
+            definition=str(data.get("definition", data.get("Definition")) or ""),
+            active=_to_bool(data.get("is_active", data.get("IsActive"))),
+        )
+
+
 @dataclass
 class ServerInfo:
     """Server-wide state: version, daemons and storage."""

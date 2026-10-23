@@ -138,14 +138,38 @@ class ZoneMinderCamera(ZoneMinderMonitorEntity, Camera):
 
         return attrs
 
+    async def async_refresh_providers(self, *, write_state: bool = True) -> None:
+        """Use ZoneMinder's own WebRTC when the server offers WHEP.
+
+        Home Assistant picks a WebRTC provider from an unordered set, so ours
+        could lose to its bundled go2rtc. It is attached directly instead,
+        which keeps HLS on offer as the fallback.
+        """
+        provider = self.entry.runtime_data.webrtc_provider
+        if provider is not None and await self.coordinator.api.async_supports_whep(
+            self._monitor_id
+        ):
+            if self._webrtc_provider is not provider:
+                self._webrtc_provider = provider
+                self._invalidate_camera_capabilities_cache()
+                if write_state:
+                    self.async_write_ha_state()
+            return
+        await super().async_refresh_providers(write_state=write_state)
+
     async def stream_source(self) -> str | None:
         """Return a stream URL for Home Assistant's stream component.
 
-        zm-api needs a live session before its playlist exists, and every part
-        of the HLS chain needs a bearer token, so the URL points at the
-        integration's media proxy rather than at ZoneMinder directly.
+        zm-api's signed RTSP link is preferred. Home Assistant's bundled
+        go2rtc can turn RTSP into WebRTC (sub-second latency); it can't do that
+        with HLS. Without RTSP we fall back to HLS. zm-api needs a live session
+        before its playlist exists, and every part of the HLS chain needs a
+        bearer token, so that URL points at the integration's media proxy.
         """
         api = self.coordinator.api
+
+        if (rtsp := await api.async_get_rtsp_url(self._monitor_id)) is not None:
+            return rtsp
 
         if (path := api.get_live_media_path(self._monitor_id)) is not None:
             await api.async_prepare_live(self._monitor_id)

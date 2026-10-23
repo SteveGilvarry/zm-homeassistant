@@ -25,11 +25,13 @@ from .const import (
     RECORDING_OPTIONS,
     SERVICE_CANCEL_EVENT,
     SERVICE_PTZ,
+    SERVICE_SAVE_RUN_STATE,
     SERVICE_SET_MONITOR_STATE,
     SERVICE_TRIGGER_EVENT,
 )
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
+from .exceptions import ZMNotSupportedError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +78,14 @@ _SET_STATE_SCHEMA = vol.Schema(
             ATTR_CAPTURING, ATTR_ANALYSING, ATTR_RECORDING, ATTR_DECODING
         ),
     )
+)
+
+
+_SAVE_RUN_STATE_SCHEMA = vol.Schema(
+    {
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=64)),
+        vol.Optional("config_entry_id"): cv.string,
+    }
 )
 
 
@@ -191,6 +201,28 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 target.monitor_id, **fields
             )
 
+    async def _save_run_state(call: ServiceCall) -> None:
+        entries = [
+            entry
+            for entry in hass.config_entries.async_loaded_entries(DOMAIN)
+            if call.data.get("config_entry_id") in (None, entry.entry_id)
+        ]
+        if len(entries) != 1:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="pick_one_server"
+            )
+        try:
+            await entries[0].runtime_data.coordinator.async_save_run_state(
+                call.data["name"]
+            )
+        except ZMNotSupportedError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="run_states_need_v3"
+            ) from err
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SAVE_RUN_STATE, _save_run_state, schema=_SAVE_RUN_STATE_SCHEMA
+    )
     hass.services.async_register(
         DOMAIN, SERVICE_TRIGGER_EVENT, _trigger_event, schema=_TRIGGER_EVENT_SCHEMA
     )
