@@ -1,17 +1,31 @@
-"""Exceptions for the ZoneMinder integration."""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Exceptions raised by the ZoneMinder integration."""
+
+from __future__ import annotations
+
+from homeassistant.exceptions import HomeAssistantError
 
 
-class ZoneMinerError(Exception):
-    """Base exception for ZoneMinder integration."""
+class ZMError(HomeAssistantError):
+    """Base class for every ZoneMinder error.
+
+    Deriving from HomeAssistantError means an error raised while handling a
+    service call or an entity command surfaces in the UI instead of vanishing
+    into the log.
+    """
 
 
-class ZMConnectionError(ZoneMinerError):
-    """Exception raised when connection to ZoneMinder fails."""
+class ZMConnectionError(ZMError):
+    """The ZoneMinder server could not be reached."""
 
 
-class ZMAuthenticationError(ZoneMinerError):
-    """Exception raised when authentication with ZoneMinder fails."""
+class ZMAuthenticationError(ZMError):
+    """Credentials were rejected, or the session could not be refreshed."""
 
 
-class ZMApiError(ZoneMinerError):
-    """Exception raised when ZoneMinder API returns an error."""
+class ZMApiError(ZMError):
+    """The server was reached but returned an error."""
+
+
+class ZMNotSupportedError(ZMError):
+    """The active backend does not implement the requested capability."""

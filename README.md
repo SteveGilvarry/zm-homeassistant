@@ -1,142 +1,201 @@
-# ZoneMinder Home Assistant Integration (ZMHA)
+# ZoneMinder for Home Assistant
 
-A Gold-tier Home Assistant Core integration for ZoneMinder with zero-YAML configuration, real-time MQTT event updates, and comprehensive camera/event management.
+A Home Assistant integration for [ZoneMinder](https://zoneminder.com/): live cameras,
+recordings you can browse and play, real-time motion, monitor controls and PTZ, all set
+up from the UI.
 
-## Project Status
+[![HACS Custom][hacs-badge]][hacs]
+[![Validate][validate-badge]][validate-workflow]
+[![Tests][test-badge]][test-workflow]
+[![License: AGPL v3][license-badge]][license]
 
-**Current Phase:** Phase 1 - Foundation (In Progress)
+## What you get
 
-### Completed
-
-- ✅ Project structure created
-- ✅ Integration manifest (manifest.json)
-- ✅ Constants and configuration (const.py)
-- ✅ Data models for Monitor and Event (models.py)
-- ✅ Custom exception hierarchy (exceptions.py)
-- ✅ Complete async API client (api.py)
-
-### In Progress
-
-- 🔄 Testing API client against ZM 1.37+ instance
-
-## Testing the API Client
-
-A test script is provided to validate the API client against your ZoneMinder instance:
-
-```bash
-python test_api.py <zm_host> <username> <password>
-```
-
-Example:
-```bash
-python test_api.py http://zm.local:8080 admin secretpass
-```
-
-The test will:
-1. Authenticate with your ZM server
-2. Retrieve ZoneMinder version
-3. List all monitors
-4. Fetch recent events
-5. Generate stream and event clip URLs
-6. Display all results
-
-## Project Goals
-
-- **Best-in-class UX** compared to Frigate
-- **Zero YAML** - 100% UI-based configuration
-- **Real-time events** via MQTT (ZM 1.37+)
-- **Fast stream startup** with optimized streaming
-- **Rich notifications** with snapshots and event clips
-- **Gold tier quality** for HA Core submission
-
-## Features (Planned)
-
-### Entities (per Monitor)
-- `camera.<monitor>` - Live stream
-- `camera.<monitor>_event` - Event clip playback
-- `binary_sensor.<monitor>_motion` - Motion detection
-- `sensor.<monitor>_last_event_id` - Last event ID
-- `sensor.<monitor>_last_event_time` - Last event timestamp
-- `button.<monitor>_trigger_alarm` - Manual alarm trigger
-- `select.<monitor>_mode` - Monitor function selector
-
-### Services
-- `zoneminder.trigger_event` - Trigger manual alarm
-- `zoneminder.ptz` - PTZ control
-
-### Custom Lovelace Card
-- Multi-camera montage view
-- Real-time motion indicators
-- Quick action controls
-- Event timeline overlay
-
-## Development Timeline
-
-- **Phase 1:** Foundation (Weeks 1-2) - **IN PROGRESS**
-- **Phase 2:** Config Flow (Week 3)
-- **Phase 3:** Live Cameras (Week 4)
-- **Phase 4:** MQTT Integration (Weeks 5-6) - Priority
-- **Phase 5:** Sensors & Motion (Week 7)
-- **Phase 6:** Controls & Services (Week 8)
-- **Phase 7:** Event Playback (Week 9) - Priority
-- **Phase 8:** Polish & Diagnostics (Week 10)
-- **Phase 9:** Testing & Documentation (Weeks 11-12)
-- **Phase 10:** Custom Lovelace Card (Weeks 13-16)
-
-**MVP Target:** 7 weeks (Phases 1-4, 7)
-**v1 Release:** 10 weeks (Phases 1-9)
-**Complete Project:** 12-14 weeks (All phases)
+- **Live cameras.** One camera entity per monitor. Video is fetched through Home
+  Assistant, so it works in every standard card without exposing a ZoneMinder token.
+- **Recordings in the media browser.** Every event shows up under Media > ZoneMinder,
+  organised by camera and day, with thumbnails. Play them in the browser or cast them.
+- **Motion that means motion.** A `binary_sensor` per monitor, updated in under a second
+  over MQTT. Continuous recording no longer registers as motion.
+- **Event entities.** An `event` entity per monitor for automations, carrying the event
+  id, cause and any object labels from zmeventnotification.
+- **Real monitor controls.** ZoneMinder 1.37 split the old Function dropdown into
+  Capturing, Analysing and Recording, so you get one `select` for each.
+- **NVR-level sensors.** Storage used, events today, capture rate, capture bandwidth,
+  camera connection state, daemon health and version, on a ZoneMinder server device that
+  the cameras hang off.
+- **PTZ.** Pan, tilt, zoom, focus, home and stored presets, through the `zoneminder.ptz`
+  service. Buttons appear only on monitors ZoneMinder can actually control.
+- **A notification blueprint.** Motion, snapshot, phone. Import it and you are done.
 
 ## Requirements
 
-- Home Assistant 2024.1+
-- ZoneMinder 1.37+ (MQTT support)
-- MQTT broker configured in Home Assistant
-- Python 3.11+
+- Home Assistant 2024.1 or newer
+- Either a [zm-api](https://github.com/SteveGilvarry/zm-api) server (recommended) or
+  ZoneMinder 1.36+ with its built-in API enabled
+- An MQTT broker configured in Home Assistant, for sub-second motion
+- An internal Home Assistant URL set under Settings > System > Network, so live video can
+  be proxied
 
-## Documentation
+## Installation
 
-- [ZMHA_INTEGRATION_SPEC.md](ZMHA_INTEGRATION_SPEC.md) - Original specification
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Detailed implementation roadmap
-- [CLAUDE.md](CLAUDE.md) - Developer reference guide
+### HACS
 
-## Architecture
+1. HACS > Integrations > three-dot menu > Custom repositories
+2. Add `https://github.com/stevengilvarry/zmha` with category **Integration**
+3. Install **ZoneMinder**, then restart Home Assistant
 
-```
-custom_components/zoneminder/
-├── __init__.py              # Integration setup & coordinator
-├── manifest.json            # Integration metadata ✅
-├── config_flow.py          # Config/options/reauth flows
-├── const.py                # Constants & enums ✅
-├── api.py                  # ZoneMinder API client ✅
-├── mqtt.py                 # MQTT event handler
-├── coordinator.py          # DataUpdateCoordinator
-├── models.py               # Data models ✅
-├── exceptions.py           # Custom exceptions ✅
-├── diagnostics.py          # Diagnostics support
-├── services.yaml           # Service definitions
-├── strings.json            # Translations
-├── camera.py               # Camera entities
-├── binary_sensor.py        # Motion sensors
-├── sensor.py               # Event sensors
-├── button.py               # Alarm buttons
-└── select.py               # Mode selectors
+### Manual
+
+```bash
+cd /config
+git clone https://github.com/stevengilvarry/zmha
+cp -r zmha/custom_components/zoneminder custom_components/zoneminder
 ```
 
-## Contributing
+Then restart Home Assistant.
 
-This project follows Home Assistant Core standards:
-- Fully async code with aiohttp
-- Type hints throughout
-- Comprehensive error handling
-- >90% test coverage
-- Black/Ruff code formatting
+### Adding the integration
+
+**Settings > Devices & Services > Add Integration > ZoneMinder**, then fill in:
+
+- **API** — zm-api or ZoneMinder's built-in API
+- **Server URL** — `http://192.168.1.10:8080` for zm-api, or `http://192.168.1.10/zm`
+  for the built-in one
+- **Username and password**
+- **Use MQTT for real-time events**
+
+## Choosing an API
+
+|                | zm-api (default)                       | Built-in API                        |
+| -------------- | -------------------------------------- | ----------------------------------- |
+| Talks to       | [zm-api](https://github.com/SteveGilvarry/zm-api) at `/api/v3` | ZoneMinder's CakePHP API at `/zm/api` |
+| Auth           | JWT bearer, refreshed automatically    | Query-parameter token               |
+| Default port   | 8080                                   | your ZoneMinder web port            |
+| Live video     | HLS through the Home Assistant proxy   | go2rtc RTSP, or MJPEG stills        |
+| Recordings     | Yes, in the media browser              | Not yet                             |
+| Server sensors | Storage, daemons, capture stats        | Version only                        |
+| Status         | zm-api is alpha                        | Stable                              |
+
+zm-api gives you recordings, storage and capture statistics that ZoneMinder's built-in
+API does not expose. Pick the built-in API if you run a stock install and want to stay
+that way.
+
+## Real-time events (MQTT)
+
+Turn on MQTT in ZoneMinder under **Options > MQTT**:
+
+```
+ZM_MQTT_HOSTNAME:  your-broker
+ZM_MQTT_PORT:      1883
+```
+
+Then enable MQTT on each monitor, under its **MQTT** tab. This last step is easy to
+miss, and without it ZoneMinder never publishes anything. The integration raises a
+repair issue when it notices nothing is publishing.
+
+The topic prefix is read from ZoneMinder's own `ZM_MQTT_TOPIC_PREFIX` setting, so you do
+not have to match its capitalisation by hand. Override it in the integration's options if
+your broker is set up differently.
+
+With MQTT the integration polls every 5 minutes and reacts to events instantly. Without
+it, polling drops to every 30 seconds and motion is only as fresh as the last poll.
+
+## Motion, and why continuous recording is not motion
+
+ZoneMinder opens an event whenever it records, whether or not anything moved. If a
+monitor is set to record continuously, there is always an event in progress. Motion
+sensors key on events with alarmed frames instead, and ignore MQTT notifications from
+monitors that are not analysing.
+
+If a motion sensor never turns on, check that the monitor's **Analysing** select is set
+to `Always`. A monitor that only captures and records cannot detect anything.
+
+## Live video
+
+For the zm-api backend, Home Assistant fetches the HLS stream through a proxy the
+integration registers at `/api/zoneminder/...`. zm-api requires a bearer token on the
+playlist and on every segment, and ffmpeg drops query strings when it resolves relative
+segment URIs, so the token has to be added server side. The proxy is restricted to
+media paths and is guarded by a per-session secret.
+
+This is why an internal URL must be set: the proxy needs to know its own address.
+
+### WebRTC
+
+zm-api has native WebRTC at `/api/v3/live/{monitor}/webrtc/ws`, and each camera entity
+publishes that URL as a `webrtc_signaling_url` attribute. A browser can answer zm-api's
+SDP offer directly, which is what the companion
+[ZoneMinder Card](https://github.com/stevengilvarry/zoneminder-card) uses for sub-second
+video.
+
+Home Assistant's own WebRTC support cannot be wired to it yet. Core expects the
+integration to *answer* an offer that the frontend makes, while zm-api sends its own
+offer as soon as the socket opens. Both want to be the offerer. If zm-api gains support
+for a client-initiated offer, wiring it up here is a small change.
+
+### go2rtc, on the built-in API
+
+Set `ZM_GO2RTC_PATH` in ZoneMinder's options. The integration reads the stream list from
+go2rtc and matches monitors to it, rather than guessing that stream names match monitor
+ids, and it checks whether go2rtc's RTSP server is actually running before handing Home
+Assistant an `rtsp://` URL. When RTSP is switched off, cameras fall back to stills.
+
+## Recordings
+
+Recordings appear under **Media > ZoneMinder**, by server, camera and day. Playback goes
+through the same proxy, so no ZoneMinder credentials reach the browser.
+
+## Services
+
+| Service                        | What it does                                            |
+| ------------------------------ | ------------------------------------------------------- |
+| `zoneminder.trigger_event`     | Forces a monitor into alarm, starting a recording       |
+| `zoneminder.cancel_event`      | Clears a forced alarm                                   |
+| `zoneminder.ptz`               | Pan, tilt, zoom, focus, home or go to a preset          |
+| `zoneminder.set_monitor_state` | Changes capturing, analysing, recording or decoding     |
+
+## Notification blueprint
+
+Import `blueprints/automation/zoneminder/motion_notification.yaml`, or copy it into
+`config/blueprints/automation/zoneminder/`. Pick a motion sensor, a camera and a notify
+service, and motion gets you a phone notification with a snapshot.
+
+## Troubleshooting
+
+Download diagnostics from the integration's page first. Passwords, tokens and the
+credentials embedded in camera RTSP URLs are stripped out, so it is safe to attach to an
+issue.
+
+| Symptom                        | Likely cause                                                     |
+| ------------------------------ | ---------------------------------------------------------------- |
+| Motion never turns on          | The monitor's Analysing is `None`                                |
+| Motion is slow                 | MQTT is off in ZoneMinder, or not enabled on the monitor         |
+| Cameras show but do not play   | No internal URL set under Settings > System > Network            |
+| No recordings in Media         | The built-in API backend, which does not serve them              |
+| Device links go nowhere        | Set the ZoneMinder web address in the integration's options      |
+
+## Development
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements_test.txt av PyTurboJPEG ha-ffmpeg
+pytest
+ruff check custom_components/zoneminder tests
+```
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the local ZoneMinder and MQTT setup,
+and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-Apache 2.0 (compatible with Home Assistant Core)
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
 
-## Credits
-
-- Integration developed for Home Assistant Core submission
-- Planning and architecture by Claude Sonnet 4.5
+[hacs]: https://github.com/hacs/integration
+[hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
+[validate-workflow]: https://github.com/stevengilvarry/zmha/actions/workflows/validate.yaml
+[validate-badge]: https://github.com/stevengilvarry/zmha/actions/workflows/validate.yaml/badge.svg
+[test-workflow]: https://github.com/stevengilvarry/zmha/actions/workflows/test.yaml
+[test-badge]: https://github.com/stevengilvarry/zmha/actions/workflows/test.yaml/badge.svg
+[license]: LICENSE
+[license-badge]: https://img.shields.io/badge/License-AGPL%20v3-blue.svg

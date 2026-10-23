@@ -1,0 +1,116 @@
+blueprint:
+  name: ZoneMinder motion notification
+  description: >-
+    Sends a phone notification with a camera snapshot when a ZoneMinder monitor
+    detects motion.
+
+    Motion only fires on monitors that have analysis switched on. A monitor set
+    to record continuously opens events constantly without ever detecting
+    motion, so this will stay quiet on those until you set Analysing to Always.
+  domain: automation
+  source_url: https://github.com/stevengilvarry/zmha/blob/main/blueprints/automation/zoneminder/motion_notification.yaml
+  input:
+    motion_sensor:
+      name: Motion sensor
+      description: The ZoneMinder motion sensor to watch.
+      selector:
+        entity:
+          filter:
+            - integration: zoneminder
+              domain: binary_sensor
+    camera:
+      name: Camera
+      description: The camera to take the snapshot from, usually the same monitor.
+      selector:
+        entity:
+          filter:
+            - integration: zoneminder
+              domain: camera
+    notify_target:
+      name: Notification service
+      description: >-
+        The notify service to call, such as notify.mobile_app_your_phone.
+      default: notify.notify
+      selector:
+        text:
+    title:
+      name: Title
+      default: Motion detected
+      selector:
+        text:
+    message:
+      name: Message
+      description: Supports templates. {{ camera_name }} is the camera's name.
+      default: "{{ camera_name }} saw movement"
+      selector:
+        text:
+    cooldown:
+      name: Cooldown
+      description: How long to stay quiet after a notification, per camera.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+          mode: slider
+    only_when_away:
+      name: Only notify when away
+      description: >-
+        Optionally skip notifications while someone is home. Leave empty to
+        always notify.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: person
+            - domain: device_tracker
+
+mode: single
+
+variables:
+  camera_entity: !input camera
+  camera_name: "{{ state_attr(camera_entity, 'friendly_name') or camera_entity }}"
+  presence: !input only_when_away
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensor
+    from: "off"
+    to: "on"
+
+condition:
+  - condition: template
+    value_template: >-
+      {{ presence | length == 0
+         or presence | select('is_state', 'home') | list | length == 0 }}
+
+action:
+  - variables:
+      snapshot: "/config/www/zoneminder_{{ camera_entity.split('.')[1] }}.jpg"
+  - service: camera.snapshot
+    target:
+      entity_id: !input camera
+    data:
+      filename: "{{ snapshot }}"
+    continue_on_error: true
+  - service: !input notify_target
+    data:
+      title: !input title
+      message: !input message
+      data:
+        image: "{{ snapshot | replace('/config/www', '/local') }}"
+        entity_id: "{{ camera_entity }}"
+        # Android groups by channel; iOS uses the thread id.
+        channel: ZoneMinder
+        thread-id: "{{ camera_entity }}"
+        actions:
+          - action: URI
+            title: View live
+            uri: "{{ '/lovelace/cameras' }}"
+          - action: URI
+            title: Recordings
+            uri: /media-browser
+  - delay:
+      seconds: !input cooldown

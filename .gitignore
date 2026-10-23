@@ -41,11 +41,31 @@ htmlcov/
 secrets.yaml
 test_credentials.json
 
-# Home Assistant
+# Home Assistant test config runtime state
 home-assistant.log
-home-assistant_v2.db
+home-assistant*.db
 .storage/
+ha_config/.storage/
+ha_config/home-assistant.log
+ha_config/home-assistant*.db
+ha_config/tts/
+ha_config/deps/
+
+# Local dev brokers
+mosquitto/data/
+mosquitto/log/
+
+# Tooling / browser automation artifacts
+.playwright-mcp/
+
+# Diagnostic dumps
+*_results.json
+*_diagnostic_results.json
 
 # OS
 .DS_Store
 Thumbs.db
+ha_config/.HA_VERSION
+ha_config/.ha_run.lock
+ha_config/home-assistant.log.*
+ha_config/home-assistant_v2.db-*

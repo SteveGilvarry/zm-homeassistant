@@ -1,242 +1,293 @@
-"""Config flow for ZoneMinder integration."""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Config flow for the ZoneMinder integration."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
-import aiohttp
-import voluptuous as vol
-
-from homeassistant import config_entries
+from homeassistant.config_entries import (
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
+import voluptuous as vol
 
-from .api import ZoneMinerAPI
+from .api import build_client
 from .const import (
+    BACKEND_V3,
+    BACKENDS,
+    CONF_BACKEND,
     CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC,
-    DEFAULT_MQTT_TOPIC,
-    DEFAULT_SCAN_INTERVAL,
+    CONF_SCAN_INTERVAL,
+    CONF_VERIFY_SSL,
+    CONF_WEB_URL,
+    DEFAULT_BACKEND,
     DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
 )
+from .data import ZoneMinderConfigEntry
 from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
+_BACKEND_SELECTOR = SelectSelector(
+    SelectSelectorConfig(
+        options=list(BACKENDS),
+        mode=SelectSelectorMode.LIST,
+        translation_key="backend",
+    )
+)
+_URL_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.URL))
+_PASSWORD_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
 
-    Data has the keys from USER_DATA_SCHEMA with values provided by the user.
-    """
-    # Create API client
-    session = aiohttp.ClientSession()
-    api = ZoneMinerAPI(
-        host=data[CONF_HOST],
-        username=data[CONF_USERNAME],
-        password=data[CONF_PASSWORD],
-        session=session,
+def _user_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
+    """Return the schema for the credentials step."""
+    defaults = defaults or {}
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_BACKEND, default=defaults.get(CONF_BACKEND, DEFAULT_BACKEND)
+            ): _BACKEND_SELECTOR,
+            vol.Required(
+                CONF_HOST, default=defaults.get(CONF_HOST, "http://homeserver:8080")
+            ): _URL_SELECTOR,
+            vol.Required(
+                CONF_USERNAME, default=defaults.get(CONF_USERNAME, "")
+            ): TextSelector(),
+            vol.Required(CONF_PASSWORD): _PASSWORD_SELECTOR,
+            vol.Optional(
+                CONF_VERIFY_SSL, default=defaults.get(CONF_VERIFY_SSL, True)
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_MQTT_ENABLED, default=defaults.get(CONF_MQTT_ENABLED, True)
+            ): BooleanSelector(),
+        }
     )
 
+
+def _normalise_host(host: str) -> str:
+    """Return a canonical form of the server URL, for the unique id."""
+    return host.strip().rstrip("/").lower()
+
+
+async def _async_validate(
+    hass: HomeAssistant, data: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Check the credentials and report what was found."""
+    client = build_client(
+        data.get(CONF_BACKEND, DEFAULT_BACKEND),
+        data[CONF_HOST],
+        data[CONF_USERNAME],
+        data[CONF_PASSWORD],
+        async_get_clientsession(hass),
+        verify_ssl=data.get(CONF_VERIFY_SSL, True),
+    )
     try:
-        # Test authentication
-        await api.authenticate()
-
-        # Get version to verify API access
-        version = await api.get_version()
-        _LOGGER.info("Connected to ZoneMinder version %s", version)
-
-        # Get monitors to verify we can fetch data
-        monitors = await api.get_monitors()
-        _LOGGER.info("Found %d monitors", len(monitors))
-
-        # Return info for creating entry
-        return {
-            "title": f"ZoneMinder ({data[CONF_HOST]})",
-            "version": version,
-            "monitor_count": len(monitors),
-        }
-
+        await client.authenticate()
+        version = await client.get_version()
+        monitors = await client.get_monitors()
     finally:
-        await api.close()
-        await session.close()
+        await client.close()
+
+    return {"version": version, "monitor_count": len(monitors)}
 
 
-class ZoneMinerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for ZoneMinder."""
+class ZoneMinderConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle the ZoneMinder config flow."""
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        """Initialize the config flow."""
-        self._reauth_entry: config_entries.ConfigEntry | None = None
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the initial step."""
+    ) -> ConfigFlowResult:
+        """Collect the server details."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            try:
-                info = await validate_input(self.hass, user_input)
-
-                # Set unique ID based on host to prevent duplicates
-                await self.async_set_unique_id(user_input[CONF_HOST])
+            errors = await self._async_try(user_input)
+            if not errors:
+                await self.async_set_unique_id(_normalise_host(user_input[CONF_HOST]))
                 self._abort_if_unique_id_configured()
-
-                # Create the config entry
                 return self.async_create_entry(
-                    title=info["title"],
+                    title=f"ZoneMinder ({user_input[CONF_HOST]})",
                     data={
-                        CONF_HOST: user_input[CONF_HOST],
+                        CONF_BACKEND: user_input.get(CONF_BACKEND, DEFAULT_BACKEND),
+                        CONF_HOST: user_input[CONF_HOST].rstrip("/"),
                         CONF_USERNAME: user_input[CONF_USERNAME],
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, True),
                     },
                     options={
-                        CONF_MQTT_ENABLED: user_input.get(CONF_MQTT_ENABLED, True),
-                        CONF_MQTT_TOPIC: DEFAULT_MQTT_TOPIC,
+                        CONF_MQTT_ENABLED: user_input.get(CONF_MQTT_ENABLED, True)
                     },
                 )
 
-            except ZMAuthenticationError:
-                errors["base"] = "invalid_auth"
-            except ZMConnectionError:
-                errors["base"] = "cannot_connect"
-            except ZMApiError:
-                errors["base"] = "api_error"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception during config flow")
-                errors["base"] = "unknown"
-
-        # Show form
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_HOST): str,
-                    vol.Required(CONF_USERNAME): str,
-                    vol.Required(CONF_PASSWORD): str,
-                    vol.Optional(CONF_MQTT_ENABLED, default=True): bool,
-                }
-            ),
+            data_schema=_user_schema(user_input),
             errors=errors,
+            description_placeholders={"default_port": "8080"},
         )
 
-    async def async_step_reauth(self, entry_data: dict[str, Any]) -> FlowResult:
-        """Handle reauth flow when credentials expire."""
-        self._reauth_entry = self.hass.config_entries.async_get_entry(
-            self.context["entry_id"]
-        )
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Start the re-authentication flow."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Confirm reauth dialog."""
+    ) -> ConfigFlowResult:
+        """Ask for fresh credentials."""
+        entry = self._get_reauth_entry()
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            assert self._reauth_entry is not None
+            candidate = {**entry.data, **user_input}
+            errors = await self._async_try(candidate)
+            if not errors:
+                return self.async_update_reload_and_abort(entry, data=candidate)
 
-            # Build full data with new credentials
-            data = {
-                CONF_HOST: self._reauth_entry.data[CONF_HOST],
-                CONF_USERNAME: user_input[CONF_USERNAME],
-                CONF_PASSWORD: user_input[CONF_PASSWORD],
-            }
-
-            try:
-                # Validate new credentials
-                await validate_input(self.hass, data)
-
-                # Update the entry
-                self.hass.config_entries.async_update_entry(
-                    self._reauth_entry,
-                    data={
-                        CONF_HOST: data[CONF_HOST],
-                        CONF_USERNAME: data[CONF_USERNAME],
-                        CONF_PASSWORD: data[CONF_PASSWORD],
-                    },
-                )
-
-                await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
-
-                return self.async_abort(reason="reauth_successful")
-
-            except ZMAuthenticationError:
-                errors["base"] = "invalid_auth"
-            except ZMConnectionError:
-                errors["base"] = "cannot_connect"
-            except ZMApiError:
-                errors["base"] = "api_error"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception during reauth")
-                errors["base"] = "unknown"
-
-        # Show reauth form
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_USERNAME): str,
-                    vol.Required(CONF_PASSWORD): str,
+                    vol.Required(
+                        CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "")
+                    ): TextSelector(),
+                    vol.Required(CONF_PASSWORD): _PASSWORD_SELECTOR,
                 }
             ),
             errors=errors,
-            description_placeholders={
-                "host": self._reauth_entry.data[CONF_HOST]
-                if self._reauth_entry
-                else "Unknown"
-            },
+            description_placeholders={"host": entry.data[CONF_HOST]},
         )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the server address or backend of an existing entry."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors = await self._async_try(user_input)
+            if not errors:
+                await self.async_set_unique_id(_normalise_host(user_input[CONF_HOST]))
+                self._abort_if_unique_id_mismatch(reason="wrong_server")
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={
+                        CONF_BACKEND: user_input.get(CONF_BACKEND, DEFAULT_BACKEND),
+                        CONF_HOST: user_input[CONF_HOST].rstrip("/"),
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, True),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_user_schema(user_input or entry.data),
+            errors=errors,
+        )
+
+    async def _async_try(self, data: Mapping[str, Any]) -> dict[str, str]:
+        """Validate input and translate failures into form errors."""
+        try:
+            info = await _async_validate(self.hass, data)
+        except ZMAuthenticationError:
+            return {"base": "invalid_auth"}
+        except ZMConnectionError:
+            return {"base": "cannot_connect"}
+        except ZMApiError:
+            return {"base": "api_error"}
+        except Exception:
+            _LOGGER.exception("Unexpected error while validating ZoneMinder")
+            return {"base": "unknown"}
+
+        _LOGGER.debug(
+            "Validated ZoneMinder %s with %d monitors",
+            info["version"],
+            info["monitor_count"],
+        )
+        return {}
 
     @staticmethod
     @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> ZoneMinerOptionsFlow:
-        """Get the options flow for this handler."""
-        return ZoneMinerOptionsFlow(config_entry)
+    def async_get_options_flow(entry: ZoneMinderConfigEntry) -> ZoneMinderOptionsFlow:
+        """Return the options flow."""
+        return ZoneMinderOptionsFlow()
 
 
-class ZoneMinerOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for ZoneMinder."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+class ZoneMinderOptionsFlow(OptionsFlow):
+    """Handle the ZoneMinder options."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Manage the options."""
+    ) -> ConfigFlowResult:
+        """Edit the options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            cleaned = {
+                key: value
+                for key, value in user_input.items()
+                if value not in (None, "")
+            }
+            if CONF_SCAN_INTERVAL in cleaned:
+                cleaned[CONF_SCAN_INTERVAL] = int(cleaned[CONF_SCAN_INTERVAL])
+            return self.async_create_entry(data=cleaned)
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_MQTT_ENABLED,
-                        default=self.config_entry.options.get(CONF_MQTT_ENABLED, True),
-                    ): bool,
-                    vol.Optional(
-                        CONF_MQTT_TOPIC,
-                        default=self.config_entry.options.get(
-                            CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC
-                        ),
-                    ): str,
-                    vol.Optional(
-                        "scan_interval",
-                        default=self.config_entry.options.get(
-                            "scan_interval", DEFAULT_SCAN_INTERVAL.total_seconds()
-                        ),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
-                }
+        options = self.config_entry.options
+        is_v3 = self.config_entry.data.get(CONF_BACKEND, DEFAULT_BACKEND) == BACKEND_V3
+
+        schema: dict[Any, Any] = {
+            vol.Optional(
+                CONF_MQTT_ENABLED, default=options.get(CONF_MQTT_ENABLED, True)
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_MQTT_TOPIC,
+                description={"suggested_value": options.get(CONF_MQTT_TOPIC)},
+            ): TextSelector(),
+            vol.Optional(
+                CONF_SCAN_INTERVAL,
+                description={"suggested_value": options.get(CONF_SCAN_INTERVAL)},
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=MIN_SCAN_INTERVAL,
+                    max=MAX_SCAN_INTERVAL,
+                    step=5,
+                    unit_of_measurement="seconds",
+                    mode=NumberSelectorMode.BOX,
+                )
             ),
-        )
+        }
+        if is_v3:
+            # The zm-api server and the ZoneMinder web UI are usually on
+            # different ports, so the "Visit device" link needs its own address.
+            schema[
+                vol.Optional(
+                    CONF_WEB_URL,
+                    description={"suggested_value": options.get(CONF_WEB_URL)},
+                )
+            ] = _URL_SELECTOR
+
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))

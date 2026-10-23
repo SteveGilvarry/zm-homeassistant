@@ -1,0 +1,4 @@
+# Test dependencies. Install with:
+#   pip install -r requirements_test.txt
+pytest-homeassistant-custom-component==0.13.316
+aioresponses>=0.7.6

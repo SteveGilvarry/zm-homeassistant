@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Constants for the ZoneMinder integration."""
 
 from datetime import timedelta
@@ -5,70 +6,213 @@ from typing import Final
 
 DOMAIN: Final = "zoneminder"
 
-# Config flow
+# -- Config entry keys -------------------------------------------------------
+
+CONF_BACKEND: Final = "backend"
 CONF_MQTT_ENABLED: Final = "mqtt_enabled"
 CONF_MQTT_TOPIC: Final = "mqtt_topic"
-DEFAULT_MQTT_TOPIC: Final = "zoneminder"
+CONF_SCAN_INTERVAL: Final = "scan_interval"
+CONF_VERIFY_SSL: Final = "verify_ssl"
+#: Optional URL of the ZoneMinder web UI, used for "Visit device" links.
+CONF_WEB_URL: Final = "web_url"
 
-# Default values
+# -- Backend selection -------------------------------------------------------
+
+BACKEND_V3: Final = "v3"  # Standalone zm-api Rust REST server (/api/v3)
+BACKEND_LEGACY: Final = "legacy"  # ZoneMinder's built-in CakePHP API (/zm/api)
+DEFAULT_BACKEND: Final = BACKEND_V3
+BACKENDS: Final = [BACKEND_V3, BACKEND_LEGACY]
+DEFAULT_V3_PORT: Final = 8080
+
+# -- Polling -----------------------------------------------------------------
+
 DEFAULT_TIMEOUT: Final = 10
+#: Timeout for endpoints that read from disk or spawn a session.
+LONG_TIMEOUT: Final = 30
 DEFAULT_SCAN_INTERVAL: Final = timedelta(seconds=30)
-MQTT_SCAN_INTERVAL: Final = timedelta(minutes=5)  # When MQTT is active
+MQTT_SCAN_INTERVAL: Final = timedelta(minutes=5)
+#: Server-wide data (storage, daemons, per-monitor summaries) is slow to change.
+SERVER_INFO_INTERVAL: Final = timedelta(minutes=5)
+MIN_SCAN_INTERVAL: Final = 5
+MAX_SCAN_INTERVAL: Final = 3600
 
-# API endpoints (relative paths - will be joined with host)
+#: How many recent events to pull per refresh (bucketed across all monitors).
+EVENT_FETCH_LIMIT: Final = 200
+#: Events kept in coordinator data per monitor.
+EVENTS_PER_MONITOR: Final = 10
+
+#: A motion state driven by MQTT is dropped back to poll-derived state if the
+#: matching "event end" never arrives. Protects against a lost message pinning
+#: a binary sensor on forever.
+MQTT_MOTION_TIMEOUT: Final = timedelta(minutes=15)
+
+# -- MQTT --------------------------------------------------------------------
+
+#: ZoneMinder's ZM_MQTT_TOPIC_PREFIX default. Case matters.
+DEFAULT_MQTT_TOPIC: Final = "ZoneMinder"
+CONFIG_MQTT_TOPIC_PREFIX: Final = "ZM_MQTT_TOPIC_PREFIX"
+CONFIG_MQTT_HOSTNAME: Final = "ZM_MQTT_HOSTNAME"
+CONFIG_GO2RTC_PATH: Final = "ZM_GO2RTC_PATH"
+
+SIGNAL_MQTT_EVENT: Final = "zoneminder_mqtt_event_{}"
+
+# -- Legacy CakePHP API endpoints (joined with host) -------------------------
+
 API_LOGIN: Final = "api/host/login.json"
 API_LOGOUT: Final = "api/host/logout.json"
 API_VERSION: Final = "api/host/getVersion.json"
+API_CONFIGS: Final = "api/configs.json"
 API_MONITORS: Final = "api/monitors.json"
 API_MONITOR: Final = "api/monitors/{monitor_id}.json"
 API_EVENTS: Final = "api/events.json"
 API_EVENT: Final = "api/events/{event_id}.json"
+API_CONTROLS: Final = "api/controls/{monitor_id}.json"
 API_ALARM_ON: Final = "api/monitors/alarm/id:{monitor_id}/command:on.json"
 API_ALARM_OFF: Final = "api/monitors/alarm/id:{monitor_id}/command:off.json"
-
-# Stream paths (relative paths - will be joined with host)
 STREAM_PATH: Final = "cgi-bin/nph-zms"
 EVENT_VIDEO_PATH: Final = "api/events/{event_id}.mp4"
 
-# Event types
-EVENT_TYPE_MOTION: Final = "Motion"
-EVENT_TYPE_ALARM: Final = "Alarm"
+# -- zm-api v3 REST endpoints (joined with host) -----------------------------
 
-# Monitor functions (modes)
-MONITOR_FUNCTION_NONE: Final = "None"
-MONITOR_FUNCTION_MONITOR: Final = "Monitor"
-MONITOR_FUNCTION_MODECT: Final = "Modect"
-MONITOR_FUNCTION_RECORD: Final = "Record"
-MONITOR_FUNCTION_MOCORD: Final = "Mocord"
-MONITOR_FUNCTION_NODECT: Final = "Nodect"
+V3_LOGIN: Final = "api/v3/auth/login"
+V3_REFRESH: Final = "api/v3/auth/refresh"
+V3_LOGOUT: Final = "api/v3/auth/logout"
+V3_VERSION: Final = "api/v3/host/getVersion"
+V3_ME: Final = "api/v3/me"
+V3_CONFIGS: Final = "api/v3/configs"
 
-MONITOR_FUNCTIONS: Final = [
-    MONITOR_FUNCTION_NONE,
-    MONITOR_FUNCTION_MONITOR,
-    MONITOR_FUNCTION_MODECT,
-    MONITOR_FUNCTION_RECORD,
-    MONITOR_FUNCTION_MOCORD,
-    MONITOR_FUNCTION_NODECT,
+V3_MONITORS: Final = "api/v3/monitors"
+V3_MONITOR: Final = "api/v3/monitors/{monitor_id}"
+V3_MONITOR_ALARM: Final = "api/v3/monitors/{monitor_id}/alarm"
+V3_MONITOR_SNAPSHOT: Final = "api/v3/monitors/{monitor_id}/snapshot"
+V3_MONITOR_STATUS: Final = "api/v3/monitor-status"
+
+V3_EVENTS: Final = "api/v3/events"
+V3_EVENT: Final = "api/v3/events/{event_id}"
+V3_EVENT_INFO: Final = "api/v3/events/{event_id}/info"
+V3_EVENT_VIDEO: Final = "api/v3/events/{event_id}/video"
+V3_EVENT_THUMBNAIL: Final = "api/v3/events/{event_id}/thumbnail"
+V3_EVENT_PLAYLIST: Final = "api/v3/events/{event_id}/stream/playlist.m3u8"
+V3_EVENT_SUMMARY: Final = "api/v3/event-summaries/{monitor_id}"
+V3_EVENT_COUNTS_BY_MONITOR: Final = "api/v3/events/counts-by-monitor/{hours}"
+
+V3_LIVE_START: Final = "api/v3/live/{monitor_id}/start"
+V3_LIVE_STOP: Final = "api/v3/live/{monitor_id}/stop"
+V3_LIVE_STATS: Final = "api/v3/live/{monitor_id}/stats"
+V3_LIVE_HLS_MASTER: Final = "api/v3/live/{monitor_id}/hls/master.m3u8"
+V3_LIVE_WEBRTC_WS: Final = "api/v3/live/{monitor_id}/webrtc/ws"
+
+V3_PTZ_MOVE: Final = "api/v3/ptz/monitors/{monitor_id}/move/{direction}"
+V3_PTZ_ZOOM: Final = "api/v3/ptz/monitors/{monitor_id}/zoom/{direction}"
+V3_PTZ_FOCUS: Final = "api/v3/ptz/monitors/{monitor_id}/focus/{direction}"
+V3_PTZ_HOME: Final = "api/v3/ptz/monitors/{monitor_id}/home"
+V3_PTZ_PRESET_GOTO: Final = "api/v3/ptz/monitors/{monitor_id}/presets/{preset}/goto"
+V3_PTZ_CAPABILITIES: Final = "api/v3/ptz/monitors/{monitor_id}/capabilities"
+V3_CONTROL_PRESETS: Final = "api/v3/control_presets"
+
+V3_STORAGE: Final = "api/v3/storage"
+V3_SYSTEM_STATUS: Final = "api/v3/system/status"
+V3_SERVER_HEALTH: Final = "api/v3/server/health_check"
+
+# -- ZoneMinder 1.37+ monitor state fields -----------------------------------
+# ZoneMinder split the single legacy "Function" into three independent fields.
+# These enum values come from the zm-api OpenAPI schema.
+
+CAPTURING_OPTIONS: Final = ["None", "Ondemand", "Always"]
+ANALYSING_OPTIONS: Final = ["None", "Always"]
+RECORDING_OPTIONS: Final = ["None", "OnMotion", "Always"]
+DECODING_OPTIONS: Final = [
+    "None",
+    "Ondemand",
+    "KeyFrames",
+    "KeyFramesOndemand",
+    "Always",
 ]
 
-# Services
+#: Legacy single-field modes, still used by the legacy backend.
+MONITOR_FUNCTIONS: Final = [
+    "None",
+    "Monitor",
+    "Modect",
+    "Record",
+    "Mocord",
+    "Nodect",
+]
+
+#: ZoneMinder 1.39 orientation values, mapped to human-readable labels.
+ORIENTATION_LABELS: Final = {
+    "Rotate0": "Normal",
+    "Rotate90": "Rotate right",
+    "Rotate180": "Inverted",
+    "Rotate270": "Rotate left",
+    "FlipHori": "Flipped horizontally",
+    "FlipVert": "Flipped vertically",
+    # ZoneMinder 1.36 and earlier used underscored names.
+    "ROTATE_0": "Normal",
+    "ROTATE_90": "Rotate right",
+    "ROTATE_180": "Inverted",
+    "ROTATE_270": "Rotate left",
+    "FLIP_HORI": "Flipped horizontally",
+    "FLIP_VERT": "Flipped vertically",
+}
+
+#: Rotation in degrees per orientation, for cards that need to correct the image.
+ORIENTATION_DEGREES: Final = {
+    "Rotate0": 0,
+    "Rotate90": 90,
+    "Rotate180": 180,
+    "Rotate270": 270,
+    "ROTATE_0": 0,
+    "ROTATE_90": 90,
+    "ROTATE_180": 180,
+    "ROTATE_270": 270,
+}
+
+# -- Services ----------------------------------------------------------------
+
 SERVICE_TRIGGER_EVENT: Final = "trigger_event"
+SERVICE_CANCEL_EVENT: Final = "cancel_event"
 SERVICE_PTZ: Final = "ptz"
+SERVICE_SET_MONITOR_STATE: Final = "set_monitor_state"
 
-# PTZ commands
-PTZ_CMD_MOVE_LEFT: Final = "moveLeft"
-PTZ_CMD_MOVE_RIGHT: Final = "moveRight"
-PTZ_CMD_MOVE_UP: Final = "moveUp"
-PTZ_CMD_MOVE_DOWN: Final = "moveDown"
-PTZ_CMD_ZOOM_IN: Final = "zoomIn"
-PTZ_CMD_ZOOM_OUT: Final = "zoomOut"
-PTZ_CMD_PRESET: Final = "preset"
+#: Backend-agnostic PTZ vocabulary accepted by the ptz service.
+PTZ_MOVE_COMMANDS: Final = [
+    "up",
+    "down",
+    "left",
+    "right",
+    "up-left",
+    "up-right",
+    "down-left",
+    "down-right",
+    "stop",
+]
+PTZ_ZOOM_COMMANDS: Final = ["zoom-in", "zoom-out", "zoom-stop"]
+PTZ_FOCUS_COMMANDS: Final = ["focus-near", "focus-far", "focus-auto", "focus-stop"]
+PTZ_OTHER_COMMANDS: Final = ["home", "preset"]
+PTZ_COMMANDS: Final = [
+    *PTZ_MOVE_COMMANDS,
+    *PTZ_ZOOM_COMMANDS,
+    *PTZ_FOCUS_COMMANDS,
+    *PTZ_OTHER_COMMANDS,
+]
 
-# Platforms
+# -- Streaming ---------------------------------------------------------------
+
+STREAM_TYPE_HLS: Final = "hls"
+STREAM_TYPE_GO2RTC: Final = "go2rtc"
+STREAM_TYPE_MJPEG: Final = "mjpeg"
+
+#: Path prefix for the authenticating media proxy registered by http.py.
+PROXY_URL_BASE: Final = "/api/zoneminder"
+
+# -- Platforms ---------------------------------------------------------------
+
 PLATFORMS: Final = [
-    "camera",
     "binary_sensor",
-    "sensor",
     "button",
+    "camera",
+    "event",
     "select",
+    "sensor",
 ]

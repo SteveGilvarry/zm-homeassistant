@@ -1,0 +1,8 @@
+streams:
+  # ZoneMinder monitors - source from ZM's go2rtc RTSP
+  1:
+    - rtsp://192.168.0.45:8554/1
+  2:
+    - rtsp://192.168.0.45:8554/2
+  4:
+    - rtsp://192.168.0.45:8554/4

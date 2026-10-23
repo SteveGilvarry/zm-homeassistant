@@ -1,0 +1,116 @@
+# Service descriptions for the ZoneMinder integration.
+
+trigger_event:
+  target:
+    device:
+      integration: zoneminder
+    entity:
+      integration: zoneminder
+      domain: camera
+  fields:
+    cause:
+      required: false
+      default: Home Assistant
+      example: Doorbell pressed
+      selector:
+        text:
+
+cancel_event:
+  target:
+    device:
+      integration: zoneminder
+    entity:
+      integration: zoneminder
+      domain: camera
+
+ptz:
+  target:
+    device:
+      integration: zoneminder
+    entity:
+      integration: zoneminder
+      domain: camera
+  fields:
+    command:
+      required: true
+      example: left
+      selector:
+        select:
+          translation_key: ptz_command
+          options:
+            - up
+            - down
+            - left
+            - right
+            - up-left
+            - up-right
+            - down-left
+            - down-right
+            - stop
+            - zoom-in
+            - zoom-out
+            - zoom-stop
+            - focus-near
+            - focus-far
+            - focus-auto
+            - focus-stop
+            - home
+            - preset
+    preset:
+      required: false
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+
+set_monitor_state:
+  target:
+    device:
+      integration: zoneminder
+    entity:
+      integration: zoneminder
+      domain: camera
+  fields:
+    capturing:
+      required: false
+      example: Always
+      selector:
+        select:
+          translation_key: capturing
+          options:
+            - None
+            - Ondemand
+            - Always
+    analysing:
+      required: false
+      example: Always
+      selector:
+        select:
+          translation_key: analysing
+          options:
+            - None
+            - Always
+    recording:
+      required: false
+      example: OnMotion
+      selector:
+        select:
+          translation_key: recording
+          options:
+            - None
+            - OnMotion
+            - Always
+    decoding:
+      required: false
+      example: Always
+      selector:
+        select:
+          translation_key: decoding
+          options:
+            - None
+            - Ondemand
+            - KeyFrames
+            - KeyFramesOndemand
+            - Always

@@ -3,11 +3,13 @@
   "name": "ZoneMinder",
   "codeowners": ["@stevengilvarry"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["http", "stream"],
+  "after_dependencies": ["media_source", "mqtt"],
   "documentation": "https://github.com/stevengilvarry/zmha",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "mqtt": ["zoneminder/#"],
-  "requirements": ["aiohttp>=3.9.0"],
-  "version": "0.1.0"
+  "issue_tracker": "https://github.com/stevengilvarry/zmha/issues",
+  "quality_scale": "bronze",
+  "requirements": [],
+  "version": "0.3.0"
 }
