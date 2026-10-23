@@ -1,8 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: 🎨 ZoneMinder Card (Enhanced Viewing)
-    url: https://github.com/stevengilvarry/zoneminder-card
-    about: For the best camera viewing experience with ultra-low latency WebRTC streaming, install the companion ZoneMinder Card
   - name: 📖 Documentation
     url: https://github.com/stevengilvarry/zmha/blob/main/README.md
     about: Read the integration documentation

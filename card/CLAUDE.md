@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Lovelace card for the zmha ZoneMinder integration (`~/Code/zmha`). Lit + TypeScript, bundled by rollup into `dist/zoneminder-card.js`.
+Lovelace card for the ZoneMinder integration in the parent folder. Lit + TypeScript, bundled by rollup into `dist/zoneminder-card.js`. `npm run ship` copies the build to `../custom_components/zoneminder/www/`; commit that file with the source change, because HACS installs it as-is.
 
 ## Rules
 

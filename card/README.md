@@ -1,49 +1,32 @@
 # ZoneMinder card
 
-A Lovelace card for the ZoneMinder integration in [zmha](https://github.com/stevengilvarry/zmha). Each camera shows its live view, with a strip underneath covering the last 24 hours:
+Source for the dashboard card the integration ships. How to use it is in the
+[main README](../README.md#card).
 
-- Blue bands are when the camera was recording. Gaps mean it wasn't.
-- Amber marks are motion. Taller marks mean a higher alarm score.
-- Hover the strip to see a frame from that moment. Click to play from there. Clips play on into the next one, at 1×, 4× or 16×.
-- Cameras that ZoneMinder rotates are shown upright. Sideways cameras get tall tiles.
-- Cameras that can pan and tilt show a direction pad when you hover over them.
+The card is Lit and TypeScript, bundled by rollup into one file. The integration serves
+that file from `custom_components/zoneminder/www/` and loads it on every dashboard, so
+users never build anything. The built file is committed for that reason.
 
-The card talks only to Home Assistant. Live video uses Home Assistant's camera stream, and recordings and thumbnails come through the integration's media proxy. The browser never needs a ZoneMinder login and never connects to ZoneMinder directly, so the card works away from home too.
-
-## Install
-
-Nothing to do: the ZoneMinder integration ships this card and loads it on every
-dashboard. Add `type: custom:zoneminder-card` to a dashboard and it's there.
-
-To work on the card, build it and copy it into the integration:
+## Building
 
 ```bash
+cd card
 npm install
-npm run ship   # builds, then copies to ../zmha/custom_components/zoneminder/www/
+npm run ship   # builds, then copies into ../custom_components/zoneminder/www/
 ```
 
-If an older setup also lists `/local/zoneminder-card.js` as a dashboard resource, remove
-that resource. The card won't load twice, but the copy in `/local` will go stale.
+Commit the copied `zoneminder-card.js` along with the source change.
 
-## Configure
+On the dev Home Assistant, a hard refresh picks up the new build. The integration
+adds a version to the URL, so after bumping the integration's version you'll also
+need `docker restart zmha-homeassistant`.
 
-```yaml
-type: custom:zoneminder-card
-```
+## How it works
 
-That shows every ZoneMinder camera. Options:
+The card talks only to Home Assistant. It never connects to ZoneMinder or sees a
+ZoneMinder login, so it works away from home too.
 
-| Option | Default | What it does |
-|---|---|---|
-| `entities` | all ZoneMinder cameras | Cameras to show, as entity ids or `{entity, name}` |
-| `columns` | fits the width | Fixed number of columns |
-| `hours` | 24 | How far back the strip goes, 1 to 168 |
-| `ptz` | true | Show the pan and tilt pad on cameras that support it |
-
-## Keyboard
-
-Tab to a strip, then:
-- Left and Right arrows move one minute (hold Shift for ten).
-- Home and End jump to the start and to now.
-- Enter plays from the selected moment.
-- Escape goes back to live.
+- Live video uses Home Assistant's own camera stream: WebRTC where the integration
+  offers it, HLS otherwise.
+- The strip comes from the integration's `zoneminder/events` websocket command.
+  Thumbnails and clips go through the integration's media proxy.

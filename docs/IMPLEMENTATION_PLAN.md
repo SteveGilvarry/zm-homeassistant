@@ -28,7 +28,7 @@ use.
 | Notification blueprint      | Done     | Motion to phone with a snapshot                               |
 | Native Home Assistant WebRTC| Blocked  | See below                                                     |
 | Object detection sensors    | Not done | MQTT labels are parsed but not yet their own entities         |
-| Timeline card               | Not done | Lives in the companion card repository                        |
+| Timeline card               | Done     | Source in `card/`, served by the integration                  |
 
 ## What was verified against a live server
 

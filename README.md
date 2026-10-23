@@ -178,11 +178,25 @@ The integration installs a Lovelace card. Add it to any dashboard:
 type: custom:zoneminder-card
 ```
 
-That shows every ZoneMinder camera. `entities`, `columns`, `hours` (1 to 168) and
-`ptz` are optional. Each camera shows live, with a strip underneath covering the last
-24 hours: blue where it recorded, amber where it saw motion. Hover for a frame from that
-moment and click to play from there. Clips play on into the next one, at 1×, 4× or 16×.
-Cameras ZoneMinder rotates are shown upright.
+That shows every ZoneMinder camera. Each one shows live, with a strip underneath
+covering the last 24 hours: blue where it recorded, amber where it saw motion. Hover
+for a frame from that moment and click to play from there. Clips play on into the next
+one, at 1×, 4× or 16×. Cameras ZoneMinder rotates are shown upright.
+
+| Option     | Default                | What it does                                         |
+| ---------- | ---------------------- | ---------------------------------------------------- |
+| `entities` | all ZoneMinder cameras | Cameras to show, as entity ids or `{entity, name}`   |
+| `columns`  | fits the width         | Fixed number of columns                              |
+| `hours`    | 24                     | How far back the strip goes, 1 to 168                |
+| `ptz`      | true                   | Show the pan and tilt pad on cameras that support it |
+
+Tab to a strip to use the keyboard: Left and Right move a minute (ten with Shift), Home
+and End jump to the start and to now, Enter plays, and Escape goes back to live.
+
+If an older setup lists `/local/zoneminder-card.js` as a dashboard resource, remove it.
+The card won't load twice, but that copy will go stale.
+
+The card's source is in [`card/`](card/README.md).
 
 ## Actions
 
