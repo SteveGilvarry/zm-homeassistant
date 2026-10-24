@@ -7,7 +7,7 @@
     "mqtt"
   ],
   "codeowners": [
-    "@stevengilvarry"
+    "@SteveGilvarry"
   ],
   "config_flow": true,
   "dependencies": [
@@ -15,10 +15,10 @@
     "stream",
     "websocket_api"
   ],
-  "documentation": "https://github.com/stevengilvarry/zmha",
+  "documentation": "https://github.com/SteveGilvarry/zm-homeassistant",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/stevengilvarry/zmha/issues",
+  "issue_tracker": "https://github.com/SteveGilvarry/zm-homeassistant/issues",
   "loggers": [
     "aiozoneminder"
   ],

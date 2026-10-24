@@ -136,7 +136,7 @@ ZoneMinder MQTT can be configured in two ways:
         try:
             # Note: This would require paho-mqtt library
             _LOGGER.info("  To test MQTT manually, run:")
-            _LOGGER.info("    docker exec zmha-mosquitto mosquitto_sub -t 'zoneminder/#' -v")
+            _LOGGER.info("    docker exec zm-homeassistant-mosquitto mosquitto_sub -t 'zoneminder/#' -v")
             _LOGGER.info("  Then trigger an event in ZoneMinder and watch for messages")
         except Exception as e:
             _LOGGER.debug(f"  MQTT test: {e}")

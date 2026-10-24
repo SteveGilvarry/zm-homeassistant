@@ -13,7 +13,7 @@ Lovelace card for the ZoneMinder integration in the parent folder. Lit + TypeScr
 
 ```bash
 npm run ship
-docker restart zmha-homeassistant   # only needed the first time; after that a hard refresh
+docker restart zm-homeassistant   # only needed the first time; after that a hard refresh
 ```
 
 The integration serves the card at `/zoneminder_static/zoneminder-card.js` and loads it on every dashboard, so there is no Lovelace resource. The dev dashboard is `/zm-cameras`.

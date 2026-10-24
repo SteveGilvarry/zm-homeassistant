@@ -4,7 +4,7 @@
 set -e
 
 echo "=========================================="
-echo "ZMHA Development Environment Setup"
+echo "zm-homeassistant development environment setup"
 echo "=========================================="
 echo
 

@@ -6,8 +6,8 @@ kinds are welcome — bug reports, fixes, docs, and features.
 ## Getting started
 
 ```bash
-git clone https://github.com/stevengilvarry/zmha
-cd zmha
+git clone https://github.com/SteveGilvarry/zm-homeassistant
+cd zm-homeassistant
 ./scripts/setup_dev.sh          # create a virtualenv and install dependencies
 ```
 

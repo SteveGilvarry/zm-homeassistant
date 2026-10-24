@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Home Assistant for testing the integration
   homeassistant:
-    container_name: zmha-homeassistant
+    container_name: zm-homeassistant
     image: homeassistant/home-assistant:latest
     volumes:
       - ./ha_config:/config
@@ -14,11 +14,11 @@ services:
     restart: unless-stopped
     privileged: true
     networks:
-      - zmha-network
+      - zm-homeassistant
 
   # MQTT Broker for ZoneMinder events
   mosquitto:
-    container_name: zmha-mosquitto
+    container_name: zm-homeassistant-mosquitto
     image: eclipse-mosquitto:latest
     volumes:
       - ./mosquitto/config:/mosquitto/config
@@ -29,8 +29,8 @@ services:
       - "9001:9001"
     restart: unless-stopped
     networks:
-      - zmha-network
+      - zm-homeassistant
 
 networks:
-  zmha-network:
+  zm-homeassistant:
     driver: bridge

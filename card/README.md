@@ -19,7 +19,7 @@ Commit the copied `zoneminder-card.js` along with the source change.
 
 On the dev Home Assistant, a hard refresh picks up the new build. The integration
 adds a version to the URL, so after bumping the integration's version you'll also
-need `docker restart zmha-homeassistant`.
+need `docker restart zm-homeassistant`.
 
 ## How it works
 

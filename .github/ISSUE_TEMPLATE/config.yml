@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: 📖 Documentation
-    url: https://github.com/stevengilvarry/zmha/blob/main/README.md
+    url: https://github.com/SteveGilvarry/zm-homeassistant/blob/main/README.md
     about: Read the integration documentation
   - name: 💬 Discussions
-    url: https://github.com/stevengilvarry/zmha/discussions
+    url: https://github.com/SteveGilvarry/zm-homeassistant/discussions
     about: Ask questions and discuss features

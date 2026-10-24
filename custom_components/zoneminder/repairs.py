@@ -48,7 +48,7 @@ def _check_mqtt(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -> None:
             "name": entry.title,
             "topic": runtime.mqtt_listener.topic,
         },
-        learn_more_url="https://github.com/stevengilvarry/zmha#real-time-events-mqtt",
+        learn_more_url="https://github.com/SteveGilvarry/zm-homeassistant#real-time-events-mqtt",
     )
 
 

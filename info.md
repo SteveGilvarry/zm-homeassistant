@@ -24,5 +24,5 @@ Restart Home Assistant, then add the integration under
 password. Set an internal Home Assistant URL under **Settings > System > Network** first,
 otherwise live video cannot be proxied.
 
-See the [README](https://github.com/stevengilvarry/zmha) for the MQTT and streaming
+See the [README](https://github.com/SteveGilvarry/zm-homeassistant) for the MQTT and streaming
 setup.

@@ -14,7 +14,7 @@ blueprint:
     The picture and clip links open that one event and nothing else, and keep
     working after Home Assistant restarts.
   domain: automation
-  source_url: https://github.com/stevengilvarry/zmha/blob/main/blueprints/automation/zoneminder/motion_notification.yaml
+  source_url: https://github.com/SteveGilvarry/zm-homeassistant/blob/main/blueprints/automation/zoneminder/motion_notification.yaml
   input:
     cameras:
       name: Cameras

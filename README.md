@@ -54,15 +54,15 @@ the client library this integration uses, automatically.
 ### HACS
 
 1. HACS > Integrations > three-dot menu > Custom repositories
-2. Add `https://github.com/stevengilvarry/zmha` with category **Integration**
+2. Add `https://github.com/SteveGilvarry/zm-homeassistant` with category **Integration**
 3. Install **ZoneMinder**, then restart Home Assistant
 
 ### Manual
 
 ```bash
 cd /config
-git clone https://github.com/stevengilvarry/zmha
-cp -r zmha/custom_components/zoneminder custom_components/zoneminder
+git clone https://github.com/SteveGilvarry/zm-homeassistant
+cp -r zm-homeassistant/custom_components/zoneminder custom_components/zoneminder
 ```
 
 Then restart Home Assistant.
@@ -257,9 +257,9 @@ AGPL-3.0-or-later. See [LICENSE](LICENSE).
 
 [hacs]: https://github.com/hacs/integration
 [hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
-[validate-workflow]: https://github.com/stevengilvarry/zmha/actions/workflows/validate.yaml
-[validate-badge]: https://github.com/stevengilvarry/zmha/actions/workflows/validate.yaml/badge.svg
-[test-workflow]: https://github.com/stevengilvarry/zmha/actions/workflows/test.yaml
-[test-badge]: https://github.com/stevengilvarry/zmha/actions/workflows/test.yaml/badge.svg
+[validate-workflow]: https://github.com/SteveGilvarry/zm-homeassistant/actions/workflows/validate.yaml
+[validate-badge]: https://github.com/SteveGilvarry/zm-homeassistant/actions/workflows/validate.yaml/badge.svg
+[test-workflow]: https://github.com/SteveGilvarry/zm-homeassistant/actions/workflows/test.yaml
+[test-badge]: https://github.com/SteveGilvarry/zm-homeassistant/actions/workflows/test.yaml/badge.svg
 [license]: LICENSE
 [license-badge]: https://img.shields.io/badge/License-AGPL%20v3-blue.svg

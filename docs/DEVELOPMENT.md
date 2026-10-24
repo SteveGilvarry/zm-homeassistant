@@ -1,4 +1,4 @@
-# ZMHA Development Guide
+# zm-homeassistant development guide
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ If you already have ZoneMinder 1.37+ running:
 2. Test API client: `python test_api.py`
 3. Start test HA instance: `docker-compose up homeassistant`
 4. Access HA at http://localhost:8123
-5. Add ZMHA integration via UI
+5. Add the ZoneMinder integration via the UI
 
 ### Option 2: Docker Test Environment
 
@@ -53,7 +53,7 @@ docker-compose up -d
 This provides:
 - **Home Assistant**: http://localhost:8123
 - **MQTT Broker**: localhost:1883
-- Auto-loads ZMHA custom component
+- Auto-loads the ZoneMinder custom component
 
 **Note:** You'll still need to provide your own ZoneMinder server or point to an existing one.
 
@@ -72,7 +72,7 @@ python test_api.py http://zm.local:8080 admin password
 ## Project Structure
 
 ```
-zmha/
+zm-homeassistant/
 ├── custom_components/zoneminder/   # Integration code
 │   ├── api.py                      # Builds the aiozoneminder client
 │   ├── const.py                    # Constants

@@ -6,7 +6,7 @@
   "main": "dist/zoneminder-card.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/stevengilvarry/zmha",
+    "url": "https://github.com/SteveGilvarry/zm-homeassistant",
     "directory": "card"
   },
   "keywords": [

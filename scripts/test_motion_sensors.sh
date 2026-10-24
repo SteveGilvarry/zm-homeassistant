@@ -15,7 +15,7 @@ echo ""
 
 # Start mosquitto_sub in background
 echo "[1/2] Starting MQTT listener..."
-docker exec zmha-mosquitto mosquitto_sub -t 'ZoneMinder/#' -v 2>&1 | while read line; do
+docker exec zm-homeassistant-mosquitto mosquitto_sub -t 'ZoneMinder/#' -v 2>&1 | while read line; do
     echo "[MQTT] $line"
 done &
 MQTT_PID=$!
@@ -26,7 +26,7 @@ echo ""
 echo "Waiting for events... (Ctrl+C to stop)"
 echo ""
 
-docker logs -f zmha-homeassistant 2>&1 | grep --line-buffered -E "(✓✓✓ MQTT EVENT|Binary sensor.*received|Event.*started|Event.*ended)" | while read line; do
+docker logs -f zm-homeassistant 2>&1 | grep --line-buffered -E "(✓✓✓ MQTT EVENT|Binary sensor.*received|Event.*started|Event.*ended)" | while read line; do
     echo "[HOME ASSISTANT] $line"
 done
 
