@@ -334,6 +334,10 @@ async def test_diagnostics_redact_secrets(
     assert "topsecret" not in dumped
     # The camera's RTSP password from the monitor fixture.
     assert "admin:secret@" not in dumped
+    # Signs the event links in notifications, which need no login: with it,
+    # anyone could forge a link to any clip.
+    notify_key = setup_integration.data["notify_key"]
+    assert notify_key not in dumped
     assert "**redacted**" in dumped
     assert diagnostics["server"]["version"] == "1.39.22"
 

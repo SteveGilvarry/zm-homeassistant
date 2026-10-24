@@ -11,10 +11,12 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 
+from .const import CONF_NOTIFY_KEY
 from .data import ZoneMinderConfigEntry
 
-#: Config entry keys never included in a diagnostics download.
-REDACT_CONFIG = {CONF_USERNAME, CONF_PASSWORD}
+#: Config entry keys never included in a diagnostics download. The notify
+#: key signs event links that need no login, so it's as secret as a password.
+REDACT_CONFIG = {CONF_USERNAME, CONF_PASSWORD, CONF_NOTIFY_KEY}
 
 #: ZoneMinder configuration keys that hold secrets.
 REDACT_CONFIG_KEYS = re.compile(r"PASS|SECRET|KEY|TOKEN|CREDENTIAL|USER", re.IGNORECASE)
