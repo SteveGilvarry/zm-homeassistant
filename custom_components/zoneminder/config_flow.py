@@ -7,11 +7,9 @@ from collections.abc import Mapping
 import logging
 from typing import Any
 
-from homeassistant.config_entries import (
-    ConfigFlow,
-    ConfigFlowResult,
-    OptionsFlow,
-)
+from aiozoneminder import ZMApiError, ZMAuthenticationError, ZMConnectionError
+from aiozoneminder.const import BACKEND_LEGACY, BACKEND_V3, BACKENDS, DEFAULT_BACKEND
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -29,24 +27,19 @@ from homeassistant.helpers.selector import (
 )
 import voluptuous as vol
 
-from .api import build_client
+from .api import client_from_entry_data
 from .const import (
-    BACKEND_LEGACY,
-    BACKEND_V3,
-    BACKENDS,
     CONF_BACKEND,
     CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
     CONF_WEB_URL,
-    DEFAULT_BACKEND,
     DOMAIN,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
 )
 from .data import ZoneMinderConfigEntry
-from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,14 +88,7 @@ async def _async_validate(
     hass: HomeAssistant, data: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Check the credentials and report what was found."""
-    client = build_client(
-        data.get(CONF_BACKEND, DEFAULT_BACKEND),
-        data[CONF_HOST],
-        data[CONF_USERNAME],
-        data[CONF_PASSWORD],
-        async_get_clientsession(hass),
-        verify_ssl=data.get(CONF_VERIFY_SSL, True),
-    )
+    client = client_from_entry_data(dict(data), async_get_clientsession(hass))
     try:
         await client.authenticate()
         version = await client.get_version()

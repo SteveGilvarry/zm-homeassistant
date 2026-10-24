@@ -18,6 +18,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from aiozoneminder import ZMApiError, ZMConnectionError, ZMError
 from homeassistant.components.camera import Camera
 from homeassistant.components.camera.webrtc import (
     CameraWebRTCProvider,
@@ -29,10 +30,9 @@ from homeassistant.core import HomeAssistant, callback
 from webrtc_models import RTCIceCandidateInit
 
 from .const import DOMAIN
-from .exceptions import ZMApiError, ZMConnectionError
 
 if TYPE_CHECKING:
-    from .client.v3 import ZoneMinderV3Client
+    from aiozoneminder import ZoneMinderV3Client
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,9 +90,13 @@ class ZoneMinderWebRTCProvider(CameraWebRTCProvider):
         """Trickle a browser candidate to zm-api."""
         if (location := self._sessions.get(session_id)) is None:
             return
-        await self.api.async_whep_candidate(
-            location, candidate.sdp_mid, candidate.candidate
-        )
+        try:
+            await self.api.async_whep_candidate(
+                location, candidate.sdp_mid, candidate.candidate
+            )
+        except ZMError as err:
+            # One lost candidate rarely matters; ICE tries the others.
+            _LOGGER.debug("WebRTC candidate for %s not sent: %s", location, err)
 
     @callback
     def async_close_session(self, session_id: str) -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 
+from aiozoneminder import Monitor
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
@@ -18,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity
-from .models import Monitor
+from .exceptions import ha_errors
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,7 +78,10 @@ class ZoneMinderTriggerAlarmButton(ZoneMinderMonitorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Trigger the alarm."""
-        await self.coordinator.async_trigger_alarm(self._monitor_id, "Home Assistant")
+        async with ha_errors():
+            await self.coordinator.async_trigger_alarm(
+                self._monitor_id, "Home Assistant"
+            )
 
 
 class ZoneMinderCancelAlarmButton(ZoneMinderMonitorEntity, ButtonEntity):
@@ -100,7 +104,8 @@ class ZoneMinderCancelAlarmButton(ZoneMinderMonitorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Cancel the alarm."""
-        await self.coordinator.async_cancel_alarm(self._monitor_id)
+        async with ha_errors():
+            await self.coordinator.async_cancel_alarm(self._monitor_id)
 
 
 class ZoneMinderPTZButton(ZoneMinderMonitorEntity, ButtonEntity):
@@ -121,7 +126,8 @@ class ZoneMinderPTZButton(ZoneMinderMonitorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Send the PTZ command."""
-        await self.coordinator.api.ptz(self._monitor_id, self._command)
+        async with ha_errors():
+            await self.coordinator.api.ptz(self._monitor_id, self._command)
 
 
 class ZoneMinderPTZPresetButton(ZoneMinderMonitorEntity, ButtonEntity):
@@ -142,4 +148,7 @@ class ZoneMinderPTZPresetButton(ZoneMinderMonitorEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Move the camera to the preset."""
-        await self.coordinator.api.ptz(self._monitor_id, "preset", preset=self._preset)
+        async with ha_errors():
+            await self.coordinator.api.ptz(
+                self._monitor_id, "preset", preset=self._preset
+            )

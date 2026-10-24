@@ -46,6 +46,9 @@ up from the UI.
   be proxied
 - Optional: an MQTT broker, for events in under a second
 
+Home Assistant installs [aiozoneminder](https://github.com/SteveGilvarry/aiozoneminder),
+the client library this integration uses, automatically.
+
 ## Installation
 
 ### HACS

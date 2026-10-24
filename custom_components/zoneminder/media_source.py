@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 
+from aiozoneminder import Event, ZMError
 from homeassistant.components.media_player import BrowseError, MediaClass, MediaType
 from homeassistant.components.media_source import (
     BrowseMediaSource,
@@ -26,7 +27,6 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN
 from .data import ZoneMinderConfigEntry
 from .http import async_proxy_path
-from .models import Event
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -177,9 +177,12 @@ class ZoneMinderMediaSource(MediaSource):
         if monitor is None:
             raise BrowseError(f"Unknown monitor {monitor_id}")
 
-        events = await coordinator.api.get_events(
-            monitor_id=monitor_id, limit=DAY_SCAN_LIMIT
-        )
+        try:
+            events = await coordinator.api.get_events(
+                monitor_id=monitor_id, limit=DAY_SCAN_LIMIT
+            )
+        except ZMError as err:
+            raise BrowseError(f"Couldn't list recordings: {err}") from err
 
         counts: dict[str, int] = {}
         for event in events:
@@ -228,9 +231,12 @@ class ZoneMinderMediaSource(MediaSource):
         except ValueError as err:
             raise BrowseError(f"Not a date: {day}") from err
 
-        events = await coordinator.api.get_events_between(
-            monitor_id, start, start + timedelta(days=1)
-        )
+        try:
+            events = await coordinator.api.get_events_between(
+                monitor_id, start, start + timedelta(days=1)
+            )
+        except ZMError as err:
+            raise BrowseError(f"Couldn't list recordings: {err}") from err
 
         secret = entry.runtime_data.proxy_secret
         api = coordinator.api

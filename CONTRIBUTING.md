@@ -17,15 +17,19 @@ A Docker test stack (Home Assistant + Mosquitto) is provided:
 docker compose up -d            # HA available at http://localhost:8123
 ```
 
-The integration source lives in `custom_components/zoneminder/`. Backend clients
-are in `custom_components/zoneminder/client/`:
+The integration source lives in `custom_components/zoneminder/`. Talking to
+ZoneMinder is done by [aiozoneminder](https://github.com/SteveGilvarry/aiozoneminder),
+a separate library with one client per API: API v3
+([zm-api](https://github.com/SteveGilvarry/zm-api)) and the built-in API v2.
+Changes to how ZoneMinder is called belong there. This repo holds the Home
+Assistant side: entities, the config flow, the media proxy and so on.
 
-- `base.py` — the `ZoneMinderClient` contract every backend implements
-- `legacy.py` — ZoneMinder's built-in CakePHP API
-- `v3.py` — the standalone [`zm-api`](https://github.com/SteveGilvarry/zm-api) v3 REST server
+To work on both at once, check aiozoneminder out next to this repo and install
+it in editable mode:
 
-Anything that the rest of the integration relies on should be part of the
-`ZoneMinderClient` contract so both backends stay interchangeable.
+```bash
+pip install -e ../aiozoneminder
+```
 
 ## Code style
 

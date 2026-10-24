@@ -74,11 +74,11 @@ python test_api.py http://zm.local:8080 admin password
 ```
 zmha/
 ├── custom_components/zoneminder/   # Integration code
-│   ├── api.py                      # ✅ API client
-│   ├── const.py                    # ✅ Constants
-│   ├── models.py                   # ✅ Data models
-│   ├── exceptions.py               # ✅ Exceptions
-│   └── manifest.json               # ✅ Metadata
+│   ├── api.py                      # Builds the aiozoneminder client
+│   ├── const.py                    # Constants
+│   ├── exceptions.py               # Shows ZoneMinder errors in the UI
+│   └── manifest.json               # Metadata
+# The API client, models and errors live in aiozoneminder (a separate repo).
 ├── test_api.py                     # ✅ API test script
 ├── .env                            # Your credentials (git-ignored)
 ├── .env.example                    # Template

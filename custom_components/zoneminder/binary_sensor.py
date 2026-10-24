@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 from typing import Any
 
+from aiozoneminder import Monitor
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -21,7 +22,6 @@ from .const import MQTT_MOTION_TIMEOUT, SIGNAL_ALARM_STATE, SIGNAL_MQTT_EVENT
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
-from .models import Monitor
 from .mqtt import ZoneMinderMQTTEvent
 
 _LOGGER = logging.getLogger(__name__)

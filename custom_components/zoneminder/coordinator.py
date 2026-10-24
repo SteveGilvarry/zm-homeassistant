@@ -7,12 +7,23 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
 
+from aiozoneminder import (
+    Event,
+    EventSummary,
+    Monitor,
+    MonitorStatus,
+    RunState,
+    ServerInfo,
+    ZMApiError,
+    ZMAuthenticationError,
+    ZMConnectionError,
+    ZoneMinderClient,
+)
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .client import ZoneMinderClient
 from .const import (
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
@@ -23,8 +34,6 @@ from .const import (
     MQTT_SCAN_INTERVAL,
     SERVER_INFO_INTERVAL,
 )
-from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
-from .models import Event, EventSummary, Monitor, MonitorStatus, RunState, ServerInfo
 
 _LOGGER = logging.getLogger(__name__)
 

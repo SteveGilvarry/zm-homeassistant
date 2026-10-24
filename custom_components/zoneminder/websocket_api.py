@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
+from aiozoneminder import ZMError
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -18,7 +19,6 @@ from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import DOMAIN
-from .exceptions import ZMApiError, ZMConnectionError
 from .http import async_proxy_path
 from .services import _monitor_id_from_device
 
@@ -71,7 +71,7 @@ async def ws_events(
     api = runtime.coordinator.api
     try:
         events = await api.get_events_between(monitor_id, start, end)
-    except (ZMApiError, ZMConnectionError) as err:
+    except ZMError as err:
         connection.send_error(msg["id"], "zoneminder_error", str(err))
         return
 

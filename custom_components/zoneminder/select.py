@@ -12,20 +12,21 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 import logging
 
-from homeassistant.components.select import SelectEntity, SelectEntityDescription
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-
-from .const import (
+from aiozoneminder import Monitor
+from aiozoneminder.const import (
     ANALYSING_OPTIONS,
     CAPTURING_OPTIONS,
     DECODING_OPTIONS,
     RECORDING_OPTIONS,
 )
+from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
-from .models import Monitor
+from .exceptions import ha_errors
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -115,7 +116,8 @@ class ZoneMinderRunStateSelect(ZoneMinderServerEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Switch run state."""
-        await self.coordinator.async_set_run_state(option)
+        async with ha_errors():
+            await self.coordinator.async_set_run_state(option)
 
 
 class ZoneMinderModeSelect(ZoneMinderMonitorEntity, SelectEntity):
@@ -155,6 +157,7 @@ class ZoneMinderModeSelect(ZoneMinderMonitorEntity, SelectEntity):
         Any failure propagates so the user sees it, rather than the UI showing
         a change ZoneMinder rejected.
         """
-        await self.coordinator.async_set_monitor_state(
-            self._monitor_id, **{self.entity_description.field: option}
-        )
+        async with ha_errors():
+            await self.coordinator.async_set_monitor_state(
+                self._monitor_id, **{self.entity_description.field: option}
+            )

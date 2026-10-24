@@ -158,3 +158,29 @@ async def test_event_stream_pushes_events_and_alarm_state(
         assert state.attributes["event_type"] == "motion"
         assert state.attributes["event_id"] == 410
         assert state.attributes["detected_objects"] == ["person"]
+
+
+async def test_api_v2_has_no_stream_and_keeps_polling(hass: HomeAssistant) -> None:
+    """On API v2 the stream task ends quietly and polling carries on."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiozoneminder import ZMNotSupportedError
+
+    from custom_components.zoneminder.event_watcher import ZoneMinderEventWatcher
+
+    async def no_stream(since: int | None = None):
+        raise ZMNotSupportedError("The legacy backend has no event stream")
+        yield  # pragma: no cover
+
+    api = MagicMock()
+    api.get_events = AsyncMock(return_value=[])
+    api.async_event_stream = no_stream
+    entry = MagicMock()
+    entry.runtime_data.coordinator.api = api
+
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    watcher._unsub = lambda: None  # As if started.
+    await watcher._async_run_stream()
+
+    assert watcher.streaming is False
+    api.get_events.assert_awaited()

@@ -6,16 +6,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from aiozoneminder import Monitor
+from aiozoneminder.const import BACKEND_LEGACY, STREAM_TYPE_MJPEG
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import BACKEND_LEGACY, STREAM_TYPE_MJPEG
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity
+from .exceptions import ha_errors
 from .http import async_proxy_url
-from .models import Monitor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -187,7 +188,8 @@ class ZoneMinderCamera(ZoneMinderMonitorEntity, Camera):
                 )
             return url
 
-        return await api.get_stream_source(self._monitor_id)
+        async with ha_errors():
+            return await api.get_stream_source(self._monitor_id)
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
@@ -195,4 +197,5 @@ class ZoneMinderCamera(ZoneMinderMonitorEntity, Camera):
         """Return a still frame."""
         if self.monitor is None:
             return None
-        return await self.coordinator.api.async_get_snapshot(self._monitor_id)
+        async with ha_errors():
+            return await self.coordinator.api.async_get_snapshot(self._monitor_id)

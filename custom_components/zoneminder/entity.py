@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from aiozoneminder import Monitor
 from homeassistant.const import CONF_HOST
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -10,7 +11,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import CONF_WEB_URL, DOMAIN
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
-from .models import Monitor
 
 #: HA 2026.8 links devices by registry id and rejects the old identifier
 #: tuple. Older releases only understand the tuple.

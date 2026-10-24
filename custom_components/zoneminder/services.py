@@ -6,6 +6,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 
+from aiozoneminder import ZMNotSupportedError
+from aiozoneminder.const import (
+    ANALYSING_OPTIONS,
+    CAPTURING_OPTIONS,
+    DECODING_OPTIONS,
+    PTZ_COMMANDS,
+    RECORDING_OPTIONS,
+)
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
@@ -17,12 +25,7 @@ from homeassistant.helpers import (
 import voluptuous as vol
 
 from .const import (
-    ANALYSING_OPTIONS,
-    CAPTURING_OPTIONS,
-    DECODING_OPTIONS,
     DOMAIN,
-    PTZ_COMMANDS,
-    RECORDING_OPTIONS,
     SERVICE_CANCEL_EVENT,
     SERVICE_PTZ,
     SERVICE_SAVE_RUN_STATE,
@@ -31,7 +34,7 @@ from .const import (
 )
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
-from .exceptions import ZMNotSupportedError
+from .exceptions import ha_errors
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -172,11 +175,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _trigger_event(call: ServiceCall) -> None:
         cause = call.data[ATTR_CAUSE]
         for target in _require_targets(hass, call):
-            await target.coordinator.async_trigger_alarm(target.monitor_id, cause)
+            async with ha_errors():
+                await target.coordinator.async_trigger_alarm(target.monitor_id, cause)
 
     async def _cancel_event(call: ServiceCall) -> None:
         for target in _require_targets(hass, call):
-            await target.coordinator.async_cancel_alarm(target.monitor_id)
+            async with ha_errors():
+                await target.coordinator.async_cancel_alarm(target.monitor_id)
 
     async def _ptz(call: ServiceCall) -> None:
         command = call.data[ATTR_COMMAND]
@@ -188,7 +193,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_domain=DOMAIN, translation_key="preset_required"
             )
         for target in _require_targets(hass, call):
-            await target.coordinator.api.ptz(target.monitor_id, command, **kwargs)
+            async with ha_errors():
+                await target.coordinator.api.ptz(target.monitor_id, command, **kwargs)
 
     async def _set_monitor_state(call: ServiceCall) -> None:
         fields = {
@@ -197,9 +203,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
             if key in call.data
         }
         for target in _require_targets(hass, call):
-            await target.coordinator.async_set_monitor_state(
-                target.monitor_id, **fields
-            )
+            async with ha_errors():
+                await target.coordinator.async_set_monitor_state(
+                    target.monitor_id, **fields
+                )
 
     async def _save_run_state(call: ServiceCall) -> None:
         entries = [
@@ -212,10 +219,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_domain=DOMAIN, translation_key="pick_one_server"
             )
         try:
-            await entries[0].runtime_data.coordinator.async_save_run_state(
-                call.data["name"]
-            )
-        except ZMNotSupportedError as err:
+            async with ha_errors():
+                await entries[0].runtime_data.coordinator.async_save_run_state(
+                    call.data["name"]
+                )
+        except ServiceValidationError as err:
+            if not isinstance(err.__cause__, ZMNotSupportedError):
+                raise
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="run_states_need_v3"
             ) from err

@@ -3,6 +3,9 @@
 # Home Assistant 2026.10.2
 pytest-homeassistant-custom-component==0.13.373
 aioresponses>=0.7.6
+# The ZoneMinder client. Until it's on PyPI, install it from a checkout:
+#   pip install -e ../aiozoneminder
+aiozoneminder==0.1.0
 pytest-timeout
 # Imported by HA's camera and stream components, which the tests load.
 PyTurboJPEG==1.8.3

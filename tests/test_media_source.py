@@ -10,7 +10,7 @@ from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from .const import event  # noqa: F401
+from .const import event  # noqa: F401,
 
 
 @pytest.fixture(autouse=True)

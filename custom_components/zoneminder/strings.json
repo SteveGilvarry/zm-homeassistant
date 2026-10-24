@@ -313,6 +313,12 @@
     },
     "run_states_need_v3": {
       "message": "Saving run states needs ZoneMinder API v3. With API v2, save them in ZoneMinder's web interface."
+    },
+    "not_supported": {
+      "message": "ZoneMinder can't do that: {error}"
+    },
+    "command_failed": {
+      "message": "ZoneMinder didn't carry that out: {error}"
     }
   },
   "issues": {

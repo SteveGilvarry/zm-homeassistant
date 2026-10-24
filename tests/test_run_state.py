@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from aioresponses import aioresponses
+from aiozoneminder import RunState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-from custom_components.zoneminder.models import RunState
 
 from .const import HOST
 

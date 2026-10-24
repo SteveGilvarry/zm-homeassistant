@@ -22,19 +22,20 @@ import logging
 import re
 
 import aiohttp
+from aiozoneminder import (
+    Event,
+    ZMApiError,
+    ZMAuthenticationError,
+    ZMConnectionError,
+    ZMNotFoundError,
+    ZMNotSupportedError,
+)
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import SIGNAL_ALARM_STATE, SIGNAL_MQTT_EVENT
 from .data import ZoneMinderConfigEntry
-from .exceptions import (
-    ZMApiError,
-    ZMAuthenticationError,
-    ZMConnectionError,
-    ZMNotFoundError,
-)
-from .models import Event
 from .mqtt import ZoneMinderMQTTEvent
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,8 +130,6 @@ class ZoneMinderEventWatcher:
         # Prime from a poll first, so the stream resumes after what we know.
         await self.async_check()
         api = self.entry.runtime_data.coordinator.api
-        if not hasattr(api, "async_event_stream"):
-            return
         failures = 0
         while self._unsub is not None:
             try:
@@ -143,6 +142,9 @@ class ZoneMinderEventWatcher:
                         failures = 0
                     self._handle_stream(message_type, data)
                 # A clean end: the token expired. Reconnect straight away.
+            except ZMNotSupportedError:
+                # API v2 has no event stream; polling carries on alone.
+                return
             except ZMNotFoundError:
                 _LOGGER.debug("No event stream on this server; polling instead")
                 self.streaming = False

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 
+from aiozoneminder import Monitor
 from homeassistant.components.event import EventDeviceClass, EventEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -20,7 +21,6 @@ from .const import SIGNAL_MQTT_EVENT
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity
-from .models import Monitor
 from .mqtt import ZoneMinderMQTTEvent
 from .notify_media import async_event_media_urls
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import logging
 
+from aiozoneminder import ZMApiError, ZMAuthenticationError, ZMConnectionError
+from aiozoneminder.const import BACKEND_V3, CONFIG_MQTT_TOPIC_PREFIX
 from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import (
     CONF_HOST,
@@ -28,11 +30,9 @@ import voluptuous as vol
 
 from .api import client_from_entry_data
 from .const import (
-    BACKEND_V3,
     CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC,
     CONF_NOTIFY_KEY,
-    CONFIG_MQTT_TOPIC_PREFIX,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
 )
@@ -40,7 +40,6 @@ from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry, ZoneMinderRuntimeData
 from .entity import monitor_device_id, server_device_id, server_device_info
 from .event_watcher import ZoneMinderEventWatcher
-from .exceptions import ZMApiError, ZMAuthenticationError, ZMConnectionError
 from .frontend import async_register_card
 from .http import async_register_proxy, generate_proxy_secret
 from .mqtt import ZoneMinderMQTTListener

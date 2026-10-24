@@ -5,14 +5,14 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from aioresponses import aioresponses
+from aiozoneminder import ZMApiError
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.zoneminder.const import DOMAIN
-from custom_components.zoneminder.exceptions import ZMApiError
 
 from .const import HOST
 
@@ -60,7 +60,7 @@ async def test_select_surfaces_failures(
             "set_monitor_state",
             side_effect=ZMApiError("monitor is locked"),
         ),
-        pytest.raises(ZMApiError, match="locked"),
+        pytest.raises(HomeAssistantError, match="locked"),
     ):
         await hass.services.async_call(
             "select",
@@ -80,7 +80,7 @@ async def test_button_surfaces_failures(
             "trigger_alarm",
             side_effect=ZMApiError("no permission"),
         ),
-        pytest.raises(ZMApiError, match="permission"),
+        pytest.raises(HomeAssistantError, match="permission"),
     ):
         await hass.services.async_call(
             "button",
@@ -126,7 +126,7 @@ async def test_stream_waits_for_the_first_segment(
         assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
 
-        with patch("custom_components.zoneminder.client.v3._FIRST_SEGMENT_POLL", 0):
+        with patch("aiozoneminder.client.v3._FIRST_SEGMENT_POLL", 0):
             source = await async_get_stream_source(hass, "camera.driveway")
 
         polls = [

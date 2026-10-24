@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from aioresponses import aioresponses
+from aiozoneminder import ZMApiError, ZMAuthenticationError, ZMConnectionError
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
@@ -17,11 +18,6 @@ from custom_components.zoneminder.const import (
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
     DOMAIN,
-)
-from custom_components.zoneminder.exceptions import (
-    ZMApiError,
-    ZMAuthenticationError,
-    ZMConnectionError,
 )
 
 from .const import ENTRY_DATA, HOST

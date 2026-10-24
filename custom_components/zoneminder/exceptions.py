@@ -1,35 +1,35 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Exceptions raised by the ZoneMinder integration."""
+"""Show aiozoneminder errors in Home Assistant's UI."""
 
 from __future__ import annotations
 
-from homeassistant.exceptions import HomeAssistantError
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from aiozoneminder import ZMError, ZMNotSupportedError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
+from .const import DOMAIN
 
 
-class ZMError(HomeAssistantError):
-    """Base class for every ZoneMinder error.
+@asynccontextmanager
+async def ha_errors() -> AsyncIterator[None]:
+    """Turn a ZoneMinder error during an action into one the UI shows.
 
-    Deriving from HomeAssistantError means an error raised while handling a
-    service call or an entity command surfaces in the UI instead of vanishing
-    into the log.
+    Without this, a failed button press or action shows "Unknown error" and
+    leaves a traceback in the log.
     """
-
-
-class ZMConnectionError(ZMError):
-    """The ZoneMinder server could not be reached."""
-
-
-class ZMAuthenticationError(ZMError):
-    """Credentials were rejected, or the session could not be refreshed."""
-
-
-class ZMApiError(ZMError):
-    """The server was reached but returned an error."""
-
-
-class ZMNotFoundError(ZMApiError):
-    """The server answered 404: the thing asked for does not exist."""
-
-
-class ZMNotSupportedError(ZMError):
-    """The active backend does not implement the requested capability."""
+    try:
+        yield
+    except ZMNotSupportedError as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="not_supported",
+            translation_placeholders={"error": str(err)},
+        ) from err
+    except ZMError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="command_failed",
+            translation_placeholders={"error": str(err)},
+        ) from err

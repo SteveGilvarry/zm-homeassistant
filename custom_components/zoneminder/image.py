@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 import logging
 
+from aiozoneminder import Event, Monitor, ZMError
 from homeassistant.components.image import ImageEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -18,8 +19,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity
-from .exceptions import ZMApiError, ZMConnectionError
-from .models import Event, Monitor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,6 +111,6 @@ class ZoneMinderLatestEventImage(ZoneMinderMonitorEntity, ImageEntity):
                 if response.status >= 400:
                     return None
                 return await response.read()
-        except (ZMApiError, ZMConnectionError, TimeoutError) as err:
+        except (ZMError, TimeoutError) as err:
             _LOGGER.debug("Thumbnail for event %d failed: %s", self._event_id, err)
             return None

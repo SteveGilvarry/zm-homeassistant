@@ -9,6 +9,7 @@ from datetime import datetime
 import logging
 from typing import Any
 
+from aiozoneminder import Monitor
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -22,7 +23,6 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .coordinator import ZoneMinderData, ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
-from .models import Monitor
 
 _LOGGER = logging.getLogger(__name__)
 
