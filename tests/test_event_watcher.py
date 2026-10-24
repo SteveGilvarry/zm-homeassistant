@@ -184,3 +184,30 @@ async def test_api_v2_has_no_stream_and_keeps_polling(hass: HomeAssistant) -> No
 
     assert watcher.streaming is False
     api.get_events.assert_awaited()
+
+
+async def test_events_open_before_the_stream_still_end(hass: HomeAssistant) -> None:
+    """An event running when the stream connected gets its end within 30 s.
+
+    The stream only reports events that start after it connects, so the
+    watcher keeps checking every sixth tick while streaming.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.zoneminder.event_watcher import (
+        STREAMING_CHECK_TICKS,
+        ZoneMinderEventWatcher,
+    )
+
+    api = MagicMock()
+    api.get_events = AsyncMock(return_value=[])
+    entry = MagicMock()
+    entry.runtime_data.coordinator.api = api
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    watcher.streaming = True
+
+    for _ in range(STREAMING_CHECK_TICKS - 1):
+        await watcher._async_tick(None)
+    assert api.get_events.await_count == 0
+    await watcher._async_tick(None)
+    assert api.get_events.await_count == 1
