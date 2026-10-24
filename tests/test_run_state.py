@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from aioresponses import aioresponses
 from aiozoneminder import RunState
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.zoneminder.const import DOMAIN
 
 from .const import HOST
 
@@ -109,3 +115,57 @@ async def test_no_select_until_there_is_a_choice(
         await hass.async_block_till_done()
 
     assert hass.states.get("select.zoneminder_test_run_state") is None
+
+
+# -- zoneminder.set_run_state, as the core integration offered it ------------------
+
+
+async def _set_run_state(hass: HomeAssistant, **data: str) -> None:
+    await hass.services.async_call(DOMAIN, "set_run_state", data, blocking=True)
+
+
+async def test_set_run_state_service_switches_by_name(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """Core's service keeps working, so old automations don't break."""
+    coordinator = setup_integration.runtime_data.coordinator
+    with patch.object(coordinator, "async_set_run_state") as switch:
+        await _set_run_state(hass, name="Away")
+    switch.assert_awaited_once_with("Away")
+
+
+async def test_set_run_state_service_matches_the_old_server_id(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """Core identified servers by their YAML host, which `id` still accepts."""
+    coordinator = setup_integration.runtime_data.coordinator
+    with patch.object(coordinator, "async_set_run_state") as switch:
+        await _set_run_state(hass, id="192.168.0.45:8080", name="Home")
+    switch.assert_awaited_once_with("Home")
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_run_state(hass, id="elsewhere.local", name="Home")
+    assert err.value.translation_key == "unknown_server"
+
+
+@pytest.mark.parametrize("action", ["stop", "restart", "start"])
+async def test_set_run_state_service_controls_zoneminder(
+    hass: HomeAssistant, setup_integration: MockConfigEntry, action: str
+) -> None:
+    """zmpkg.pl took start, stop and restart as state names, so core did too."""
+    api = setup_integration.runtime_data.coordinator.api
+    with patch.object(api, "server_control") as control:
+        await _set_run_state(hass, name=action)
+    control.assert_awaited_once_with(action)
+
+
+async def test_set_run_state_service_rejects_unknown_states(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_run_state(hass, name="Holiday")
+    assert err.value.translation_key == "unknown_run_state"
+    assert err.value.translation_placeholders == {
+        "name": "Holiday",
+        "options": "default, Home, Away",
+    }

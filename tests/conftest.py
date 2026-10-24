@@ -148,7 +148,6 @@ def config_entry() -> MockConfigEntry:
         title="ZoneMinder (test)",
         data=ENTRY_DATA,
         options=ENTRY_OPTIONS,
-        unique_id=HOST.lower(),
         entry_id="01JZONEMINDERTESTENTRY000",
     )
 

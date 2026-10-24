@@ -102,6 +102,17 @@ set_monitor_state:
             - KeyFrames
             - KeyFramesOndemand
             - Always
+    function:
+      required: false
+      selector:
+        select:
+          options:
+            - None
+            - Monitor
+            - Modect
+            - Record
+            - Mocord
+            - Nodect
 
 save_run_state:
   fields:
@@ -115,3 +126,36 @@ save_run_state:
       selector:
         config_entry:
           integration: zoneminder
+
+set_run_state:
+  fields:
+    name:
+      required: true
+      example: Away
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: zoneminder
+    id:
+      required: false
+      example: zm.local
+      selector:
+        text:
+
+ptz_preset:
+  target:
+    entity:
+      integration: zoneminder
+      domain: camera
+  fields:
+    preset:
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box

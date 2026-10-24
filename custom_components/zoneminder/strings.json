@@ -64,12 +64,18 @@
           "mqtt_enabled": "Use MQTT for real-time events",
           "mqtt_topic": "MQTT topic prefix",
           "scan_interval": "Polling interval",
-          "web_url": "ZoneMinder web address"
+          "web_url": "ZoneMinder web address",
+          "event_periods": "Event counts",
+          "stream_scale": "Live view size",
+          "stream_maxfps": "Live view frame rate limit"
         },
         "data_description": {
           "mqtt_topic": "Leave blank to use the prefix ZoneMinder reports (ZM_MQTT_TOPIC_PREFIX).",
           "scan_interval": "Leave blank to poll every 5 minutes with MQTT on, or every 30 seconds without it.",
-          "web_url": "Where the ZoneMinder web interface lives, used for the links on each device. API v3 usually runs on a different port."
+          "web_url": "Where the ZoneMinder web interface lives, used for the links on each device. API v3 usually runs on a different port.",
+          "event_periods": "Which event counts each camera gets a sensor for. ZoneMinder counts over a rolling window, so \"day\" means the last 24 hours.",
+          "stream_scale": "Shrink the MJPEG live view to this percentage of the camera's resolution, to save bandwidth when watching remotely. Leave blank for full size.",
+          "stream_maxfps": "Cap the MJPEG live view's frame rate. Leave blank for up to 30 frames a second."
         }
       }
     }
@@ -101,6 +107,15 @@
         "focus-stop": "Stop focusing",
         "home": "Go home",
         "preset": "Go to preset"
+      }
+    },
+    "event_periods": {
+      "options": {
+        "hour": "Past hour",
+        "day": "Past day",
+        "week": "Past week",
+        "month": "Past month",
+        "all": "All time"
       }
     }
   },
@@ -159,6 +174,12 @@
       },
       "ptz_stop": {
         "name": "Stop moving"
+      },
+      "start": {
+        "name": "Start"
+      },
+      "stop": {
+        "name": "Stop"
       }
     },
     "sensor": {
@@ -169,7 +190,7 @@
         "name": "Last motion"
       },
       "events_today": {
-        "name": "Events today"
+        "name": "Events past day"
       },
       "disk_usage": {
         "name": "Recording storage"
@@ -190,18 +211,35 @@
         "name": "Recording storage"
       },
       "server_events_today": {
-        "name": "Events today"
+        "name": "Events past day"
       },
       "server_monitors": {
         "name": "Monitors"
       },
       "server_version": {
         "name": "Version"
+      },
+      "events_hour": {
+        "name": "Events past hour"
+      },
+      "events_week": {
+        "name": "Events past week"
+      },
+      "events_month": {
+        "name": "Events past month"
+      },
+      "events_total": {
+        "name": "Total events"
       }
     },
     "image": {
       "latest_event": {
         "name": "Latest event"
+      }
+    },
+    "switch": {
+      "function": {
+        "name": "{function}"
       }
     }
   },
@@ -254,6 +292,10 @@
         "decoding": {
           "name": "Decoding",
           "description": "How much of the stream ZoneMinder decodes. Lower settings use less CPU."
+        },
+        "function": {
+          "name": "Function",
+          "description": "A mode from before ZoneMinder 1.37, such as Modect, which sets capturing, analysing and recording together. Any of those given as well take precedence."
         }
       }
     },
@@ -268,6 +310,34 @@
         "config_entry_id": {
           "name": "ZoneMinder server",
           "description": "Only needed when you have more than one."
+        }
+      }
+    },
+    "set_run_state": {
+      "name": "Set run state",
+      "description": "Switches ZoneMinder to a saved run state, such as Home or Away. Also accepts start, stop and restart, which control ZoneMinder itself.",
+      "fields": {
+        "name": {
+          "name": "Run state",
+          "description": "The run state to switch to, or start, stop or restart."
+        },
+        "config_entry_id": {
+          "name": "ZoneMinder server",
+          "description": "Only needed when you have more than one."
+        },
+        "id": {
+          "name": "Server host",
+          "description": "The host from the old YAML, such as zm.local. Kept for automations written for the core integration; use ZoneMinder server instead."
+        }
+      }
+    },
+    "ptz_preset": {
+      "name": "PTZ preset",
+      "description": "Moves a PTZ camera to one of its numbered presets, or to its home position with preset 0.",
+      "fields": {
+        "preset": {
+          "name": "Preset",
+          "description": "The preset number, or 0 for home."
         }
       }
     }
@@ -290,6 +360,12 @@
     },
     "command_failed": {
       "message": "ZoneMinder didn't carry that out: {error}"
+    },
+    "unknown_run_state": {
+      "message": "ZoneMinder has no run state called {name}. Its run states are: {options}."
+    },
+    "unknown_server": {
+      "message": "No ZoneMinder server matches {id}."
     }
   },
   "issues": {
@@ -300,6 +376,10 @@
     "no_internal_url": {
       "title": "ZoneMinder cameras need an internal URL",
       "description": "{name} streams video through Home Assistant, which needs to know its own address to build the stream URL.\n\nSet an internal address under Settings > System > Network, then reload the integration."
+    },
+    "yaml_import_failed": {
+      "title": "ZoneMinder YAML for {host} wasn't imported",
+      "description": "Home Assistant tried to move the `zoneminder:` YAML for {host} into the UI, but it failed with `{error}`. Check that ZoneMinder is running and the details in the YAML are right. The import runs again at the next restart, so keep the YAML until it succeeds."
     }
   }
 }

@@ -18,8 +18,13 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfDataRate, UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from .const import CONF_EVENT_PERIODS, DEFAULT_EVENT_PERIODS, EVENT_PERIODS
 from .coordinator import ZoneMinderData, ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
@@ -76,15 +81,6 @@ MONITOR_SENSORS: tuple[ZoneMinderMonitorSensorDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda data, mid: (
             event.start_time if (event := data.latest_alarm(mid)) else None
-        ),
-    ),
-    ZoneMinderMonitorSensorDescription(
-        key="events_today",
-        translation_key="events_today",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="events",
-        value_fn=lambda data, mid: (
-            summary.day_events if (summary := data.summaries.get(mid)) else None
         ),
     ),
     ZoneMinderMonitorSensorDescription(
@@ -145,6 +141,31 @@ MONITOR_SENSORS: tuple[ZoneMinderMonitorSensorDescription, ...] = (
     ),
 )
 
+
+def _event_count(key: str, field: str) -> ZoneMinderMonitorSensorDescription:
+    """Describe an event-count sensor reading one EventSummary field."""
+    return ZoneMinderMonitorSensorDescription(
+        key=key,
+        translation_key=key,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="events",
+        value_fn=lambda data, mid: (
+            getattr(summary, field) if (summary := data.summaries.get(mid)) else None
+        ),
+    )
+
+
+#: One sensor per period in the event_periods option. ZoneMinder's periods
+#: are rolling: "day" is the last 24 hours, not since midnight. The day
+#: sensor keeps its original key so existing entities carry on.
+EVENT_COUNT_SENSORS: dict[str, ZoneMinderMonitorSensorDescription] = {
+    "hour": _event_count("events_hour", "hour_events"),
+    "day": _event_count("events_today", "day_events"),
+    "week": _event_count("events_week", "week_events"),
+    "month": _event_count("events_month", "month_events"),
+    "all": _event_count("events_total", "total_events"),
+}
+
 SERVER_SENSORS: tuple[ZoneMinderServerSensorDescription, ...] = (
     ZoneMinderServerSensorDescription(
         key="disk_usage",
@@ -182,6 +203,19 @@ SERVER_SENSORS: tuple[ZoneMinderServerSensorDescription, ...] = (
 )
 
 
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
+    """Accept the old `sensor: - platform: zoneminder` YAML.
+
+    Its settings are imported with the server (see yaml_import.py); this
+    only stops Home Assistant reporting the platform as unsupported.
+    """
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ZoneMinderConfigEntry,
@@ -194,10 +228,15 @@ async def async_setup_entry(
         ZoneMinderServerSensor(coordinator, entry, description)
         for description in SERVER_SENSORS
     ]
+    periods = entry.options.get(CONF_EVENT_PERIODS, DEFAULT_EVENT_PERIODS)
+    descriptions = [
+        *MONITOR_SENSORS,
+        *(EVENT_COUNT_SENSORS[p] for p in EVENT_PERIODS if p in periods),
+    ]
     entities.extend(
         ZoneMinderMonitorSensor(coordinator, entry, monitor, description)
         for monitor in coordinator.data.monitors.values()
-        for description in MONITOR_SENSORS
+        for description in descriptions
     )
     async_add_entities(entities)
 
