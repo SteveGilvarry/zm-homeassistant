@@ -88,7 +88,7 @@ Then restart Home Assistant.
 |                | API v3 (default)                       | API v2 (built in)                   |
 | -------------- | -------------------------------------- | ----------------------------------- |
 | Talks to       | [ZoneMinder API v3](https://github.com/SteveGilvarry/zm-api) at `/api/v3` | ZoneMinder's CakePHP API at `/zm/api` |
-| Auth           | JWT bearer, refreshed automatically    | Query-parameter token               |
+| Auth           | JWT bearer, refreshed automatically; always needs a ZoneMinder user | Query-parameter token, or none when ZoneMinder's authentication is off |
 | Default port   | 8080                                   | your ZoneMinder web port            |
 | Live video     | WebRTC (WHEP), RTSP or HLS             | go2rtc RTSP, or MJPEG               |
 | Recordings     | Yes: media browser, card, notifications | Not yet                            |
@@ -287,6 +287,7 @@ issue.
 | Cameras show but do not play   | No internal URL set under Settings > System > Network            |
 | Recordings in Media won't play | API v2, which doesn't serve them                                 |
 | Device links go nowhere        | Set the ZoneMinder web address in the integration's options      |
+| API v3 says "Invalid username or password" on a server without logins | ZoneMinder's authentication (`ZM_OPT_USE_AUTH`) is off. API v3 always needs a user: turn it on (Options > System; on by default only for new installs from ZoneMinder 1.39.41) and create one, or pick API v2 and type any username and password |
 
 ## Development
 
