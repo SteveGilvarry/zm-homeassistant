@@ -106,8 +106,12 @@ class ZoneMinderEventWatcher:
         #: Set when ZoneMinder rejects the login. Retrying every few seconds
         #: would only pile up failed logins (and trip fail2ban or a login
         #: throttle) while the user fixes the password, so the watcher waits
-        #: for the reauthentication, which reloads the entry.
+        #: until the coordinator gets through again (a rejection can be
+        #: momentary) or the reauthentication reloads the entry.
         self._auth_failed = False
+        self._unsub_resume: CALLBACK_TYPE | None = None
+        #: True when the stream task ended because of the rejection.
+        self._stream_paused = False
 
     @callback
     def async_start(self) -> None:
@@ -115,6 +119,10 @@ class ZoneMinderEventWatcher:
         self._unsub = async_track_time_interval(
             self.hass, self._async_tick, WATCH_INTERVAL, name="zoneminder events"
         )
+        self._async_start_stream()
+
+    @callback
+    def _async_start_stream(self) -> None:
         self.entry.async_create_background_task(
             self.hass, self._async_run_stream(), name="zoneminder event stream"
         )
@@ -125,6 +133,9 @@ class ZoneMinderEventWatcher:
         if self._unsub is not None:
             self._unsub()
             self._unsub = None
+        if self._unsub_resume is not None:
+            self._unsub_resume()
+            self._unsub_resume = None
 
     async def _async_tick(self, _now) -> None:
         if not self.streaming:
@@ -157,7 +168,7 @@ class ZoneMinderEventWatcher:
                 continue
             except ZMAuthenticationError as err:
                 self._pause_for_auth(err)
-                return
+                break
             except (ZMConnectionError, ZMApiError) as err:
                 _LOGGER.debug("Event stream dropped: %s", err)
             except (aiohttp.ClientError, TimeoutError) as err:
@@ -169,6 +180,8 @@ class ZoneMinderEventWatcher:
             failures += 1
             # Catch anything missed while disconnected.
             await self.async_check()
+        if self._auth_failed:
+            self._stream_paused = True
 
     @callback
     def _handle_stream(self, message_type: str, data: dict) -> None:
@@ -213,10 +226,28 @@ class ZoneMinderEventWatcher:
             self._busy = False
 
     def _pause_for_auth(self, err: ZMAuthenticationError) -> None:
-        if not self._auth_failed:
-            _LOGGER.debug("Event checks paused until the login is fixed: %s", err)
-        self._auth_failed = True
         self.streaming = False
+        if self._auth_failed:
+            return
+        _LOGGER.debug("Event checks paused until the login works again: %s", err)
+        self._auth_failed = True
+        self._unsub_resume = self.entry.runtime_data.coordinator.async_add_listener(
+            self._async_resume_after_auth
+        )
+
+    @callback
+    def _async_resume_after_auth(self) -> None:
+        """Pick up again once the coordinator has logged in successfully."""
+        if not self.entry.runtime_data.coordinator.last_update_success:
+            return
+        _LOGGER.debug("ZoneMinder accepts the login again; resuming event checks")
+        if self._unsub_resume is not None:
+            self._unsub_resume()
+            self._unsub_resume = None
+        self._auth_failed = False
+        if self._stream_paused and self._unsub is not None:
+            self._stream_paused = False
+            self._async_start_stream()
 
     async def _async_check(self) -> None:
         api = self.entry.runtime_data.coordinator.api
