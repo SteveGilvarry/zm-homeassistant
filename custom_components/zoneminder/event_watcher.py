@@ -103,6 +103,9 @@ class ZoneMinderEventWatcher:
         #: True while the event stream is connected; polling pauses then.
         self.streaming = False
         self._last_event_id: int | None = None
+        #: Monitors the stream has sent a live alarm state for. That state is
+        #: only current while the stream is up, so it is withdrawn on a drop.
+        self._alarm_monitors: set[int] = set()
 
     @callback
     def async_start(self) -> None:
@@ -155,6 +158,7 @@ class ZoneMinderEventWatcher:
             except (aiohttp.ClientError, TimeoutError) as err:
                 _LOGGER.debug("Event stream dropped: %s", err)
             self.streaming = False
+            self._forget_alarm_states()
             await asyncio.sleep(
                 _STREAM_BACKOFF[min(failures, len(_STREAM_BACKOFF) - 1)]
             )
@@ -163,11 +167,27 @@ class ZoneMinderEventWatcher:
             await self.async_check()
 
     @callback
+    def _forget_alarm_states(self) -> None:
+        """Tell the motion sensors the live alarm state is no longer known.
+
+        Without the stream nothing would ever replace the last state it sent,
+        so a sensor left at "alarm" would stay on after the motion ended. With
+        "unknown" the sensors go back to judging motion from polled events.
+        """
+        for monitor_id in self._alarm_monitors:
+            async_dispatcher_send(
+                self.hass, SIGNAL_ALARM_STATE.format(monitor_id), "unknown"
+            )
+        self._alarm_monitors.clear()
+
+    @callback
     def _handle_stream(self, message_type: str, data: dict) -> None:
         if message_type == "alarm_state":
+            monitor_id = int(data["monitor_id"])
+            self._alarm_monitors.add(monitor_id)
             async_dispatcher_send(
                 self.hass,
-                SIGNAL_ALARM_STATE.format(int(data["monitor_id"])),
+                SIGNAL_ALARM_STATE.format(monitor_id),
                 str(data.get("state", "unknown")),
             )
             return
