@@ -103,6 +103,11 @@ class ZoneMinderEventWatcher:
         #: True while the event stream is connected; polling pauses then.
         self.streaming = False
         self._last_event_id: int | None = None
+        #: Set when ZoneMinder rejects the login. Retrying every few seconds
+        #: would only pile up failed logins (and trip fail2ban or a login
+        #: throttle) while the user fixes the password, so the watcher waits
+        #: for the reauthentication, which reloads the entry.
+        self._auth_failed = False
 
     @callback
     def async_start(self) -> None:
@@ -131,7 +136,7 @@ class ZoneMinderEventWatcher:
         await self.async_check()
         api = self.entry.runtime_data.coordinator.api
         failures = 0
-        while self._unsub is not None:
+        while self._unsub is not None and not self._auth_failed:
             try:
                 async for message_type, data in api.async_event_stream(
                     since=self._last_event_id
@@ -150,7 +155,10 @@ class ZoneMinderEventWatcher:
                 self.streaming = False
                 await asyncio.sleep(_STREAM_RECHECK)
                 continue
-            except (ZMAuthenticationError, ZMConnectionError, ZMApiError) as err:
+            except ZMAuthenticationError as err:
+                self._pause_for_auth(err)
+                return
+            except (ZMConnectionError, ZMApiError) as err:
                 _LOGGER.debug("Event stream dropped: %s", err)
             except (aiohttp.ClientError, TimeoutError) as err:
                 _LOGGER.debug("Event stream dropped: %s", err)
@@ -192,15 +200,23 @@ class ZoneMinderEventWatcher:
 
     async def async_check(self) -> None:
         """Look for new and newly finished events."""
-        if self._busy:
+        if self._busy or self._auth_failed:
             return
         self._busy = True
         try:
             await self._async_check()
+        except ZMAuthenticationError as err:
+            self._pause_for_auth(err)
         except (ZMApiError, ZMConnectionError) as err:
             _LOGGER.debug("Event check failed: %s", err)
         finally:
             self._busy = False
+
+    def _pause_for_auth(self, err: ZMAuthenticationError) -> None:
+        if not self._auth_failed:
+            _LOGGER.debug("Event checks paused until the login is fixed: %s", err)
+        self._auth_failed = True
+        self.streaming = False
 
     async def _async_check(self) -> None:
         api = self.entry.runtime_data.coordinator.api
