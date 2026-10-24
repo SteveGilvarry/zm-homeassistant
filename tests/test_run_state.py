@@ -94,6 +94,8 @@ async def test_save_run_state_snapshots_the_cameras(
             "definition": (
                 "1:Always:None:Always,2:Always:Always:OnMotion,3:Always:None:Always"
             ),
+            # zm-api requires is_active on create (aiozoneminder sends 0).
+            "is_active": 0,
         }
     ]
 
