@@ -2,8 +2,6 @@
 
 trigger_event:
   target:
-    device:
-      integration: zoneminder
     entity:
       integration: zoneminder
       domain: camera
@@ -17,16 +15,12 @@ trigger_event:
 
 cancel_event:
   target:
-    device:
-      integration: zoneminder
     entity:
       integration: zoneminder
       domain: camera
 
 ptz:
   target:
-    device:
-      integration: zoneminder
     entity:
       integration: zoneminder
       domain: camera
@@ -67,8 +61,6 @@ ptz:
 
 set_monitor_state:
   target:
-    device:
-      integration: zoneminder
     entity:
       integration: zoneminder
       domain: camera
@@ -78,7 +70,6 @@ set_monitor_state:
       example: Always
       selector:
         select:
-          translation_key: capturing
           options:
             - None
             - Ondemand
@@ -88,7 +79,6 @@ set_monitor_state:
       example: Always
       selector:
         select:
-          translation_key: analysing
           options:
             - None
             - Always
@@ -97,7 +87,6 @@ set_monitor_state:
       example: OnMotion
       selector:
         select:
-          translation_key: recording
           options:
             - None
             - OnMotion
@@ -107,7 +96,6 @@ set_monitor_state:
       example: Always
       selector:
         select:
-          translation_key: decoding
           options:
             - None
             - Ondemand

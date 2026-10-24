@@ -102,35 +102,6 @@
         "home": "Go home",
         "preset": "Go to preset"
       }
-    },
-    "capturing": {
-      "options": {
-        "None": "Off",
-        "Ondemand": "On demand",
-        "Always": "Always"
-      }
-    },
-    "analysing": {
-      "options": {
-        "None": "Off",
-        "Always": "Always"
-      }
-    },
-    "recording": {
-      "options": {
-        "None": "Off",
-        "OnMotion": "On motion",
-        "Always": "Always"
-      }
-    },
-    "decoding": {
-      "options": {
-        "None": "Off",
-        "Ondemand": "On demand",
-        "KeyFrames": "Key frames",
-        "KeyFramesOndemand": "Key frames on demand",
-        "Always": "Always"
-      }
     }
   },
   "entity": {
