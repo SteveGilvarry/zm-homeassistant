@@ -100,7 +100,7 @@ set_monitor_state:
             - None
             - Ondemand
             - KeyFrames
-            - KeyFramesOndemand
+            - KeyFrames+Ondemand
             - Always
 
 save_run_state:

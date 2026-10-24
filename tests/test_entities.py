@@ -9,6 +9,7 @@ from aiozoneminder import ZMApiError
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.util.yaml import load_yaml
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -282,6 +283,19 @@ async def test_set_monitor_state_service(
 
     patched = [str(url) for (method, url) in zm_api.requests if method == "PATCH"]
     assert f"{HOST}/api/v3/monitors/1" in patched
+
+
+def test_service_decoding_options_are_zoneminder_values() -> None:
+    """The service's Decoding choices are the values of ZoneMinder's enum."""
+    services = load_yaml("custom_components/zoneminder/services.yaml")
+    field = services["set_monitor_state"]["fields"]["decoding"]
+    assert field["selector"]["select"]["options"] == [
+        "None",
+        "Ondemand",
+        "KeyFrames",
+        "KeyFrames+Ondemand",
+        "Always",
+    ]
 
 
 async def test_event_entity_fires_on_mqtt(
