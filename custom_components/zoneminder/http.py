@@ -188,13 +188,20 @@ async def async_stream_upstream(
                     content_type="application/vnd.apple.mpegurl",
                 )
 
+            headers = {
+                name: value
+                for name in _PASSTHROUGH_HEADERS
+                if (value := upstream_response.headers.get(name))
+            }
+            # The length lets players (Safari and other AVPlayer-based ones are
+            # strict about ranges) see a sized body instead of a chunked one.
+            # aiohttp decodes compressed bodies, so a compressed length is
+            # never passed on.
+            length = upstream_response.headers.get("Content-Length")
+            if length and "Content-Encoding" not in upstream_response.headers:
+                headers["Content-Length"] = length
             response = web.StreamResponse(
-                status=upstream_response.status,
-                headers={
-                    name: value
-                    for name in _PASSTHROUGH_HEADERS
-                    if (value := upstream_response.headers.get(name))
-                },
+                status=upstream_response.status, headers=headers
             )
             await response.prepare(request)
             async for chunk in upstream_response.content.iter_chunked(_CHUNK):
