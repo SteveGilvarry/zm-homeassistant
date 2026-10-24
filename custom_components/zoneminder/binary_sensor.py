@@ -295,14 +295,20 @@ class ZoneMinderServerRunning(ZoneMinderServerEntity, BinarySensorEntity):
         super().__init__(coordinator, entry, "running")
 
     @property
-    def is_on(self) -> bool:
-        """Return True when ZoneMinder reports itself running."""
+    def is_on(self) -> bool | None:
+        """Return True when ZoneMinder reports itself running.
+
+        None (unknown) when the status could not be read, for example when the
+        user may not view System.
+        """
         return self.coordinator.data.server.running
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the daemon tally."""
+        """Return the daemon tally, when the status could be read."""
         server = self.coordinator.data.server
+        if server.running is None:
+            return {}
         return {
             "daemons_running": server.daemons_running,
             "daemons_total": server.daemons_total,
