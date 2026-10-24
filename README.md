@@ -297,6 +297,26 @@ pytest
 ruff check custom_components/zoneminder tests
 ```
 
+### Live tests
+
+`tests/live` runs the integration against a real ZoneMinder server instead of
+mocks, once per API you point it at. It is skipped unless a server is set:
+
+```bash
+export ZM_LIVE_V3_URL=http://zm.local       # zm-api (API v3), and/or
+export ZM_LIVE_V2_URL=http://zm.local/zm    # the built-in API v2
+export ZM_LIVE_USER=admin ZM_LIVE_PASSWORD=secret
+pytest tests/live
+```
+
+Optional: `ZM_LIVE_MONITOR` (id or name of the monitor to use),
+`ZM_LIVE_RESTRICTED_USER`/`ZM_LIVE_RESTRICTED_PASSWORD` (a user without System
+access), `ZM_LIVE_TIMEZONE` (the server's, default UTC). By default the tests
+only read. `ZM_LIVE_WRITE=1` adds the ones that change modes, trigger an
+alarm, send PTZ stop and switch run states; each puts back what it changed,
+but use a server you can test on. What each test checks is in
+`tests/live/test_live.py`.
+
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the local ZoneMinder and MQTT setup,
 and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Contributions
 need a signed [Contributor License Agreement](CLA.md).
