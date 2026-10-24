@@ -255,7 +255,8 @@ ruff check custom_components/zoneminder tests
 ```
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the local ZoneMinder and MQTT setup,
-and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Contributions
+need a signed [Contributor License Agreement](CLA.md).
 
 ## License
 

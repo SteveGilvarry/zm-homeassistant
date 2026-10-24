@@ -61,7 +61,16 @@ Open an issue with your Home Assistant version, ZoneMinder (or zm-api) version,
 the backend you selected, and relevant logs (`Settings → System → Logs`, filtered
 for `zoneminder`).
 
-## License
+## License and CLA
 
-By contributing, you agree that your contributions are licensed under the
-project's **Apache-2.0** license.
+The project is licensed under **Apache-2.0**. Before a pull request can be
+merged, you need to agree to the [Contributor License Agreement](CLA.md). You
+keep the copyright in your work. The CLA gives ZoneMinder Inc a licence to use
+it, including the right to offer the project under other terms in future.
+
+The CLA Assistant check does this for you. On your first pull request a bot
+asks you to sign by replying with:
+
+> I have read the CLA Document and I hereby sign the CLA
+
+You only sign once.
