@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """WebRTC straight from ZoneMinder API v3.
 
 The browser's offer goes to zm-api's WHEP endpoint and the answer comes

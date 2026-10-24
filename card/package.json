@@ -16,7 +16,7 @@
     "zoneminder"
   ],
   "author": "Steve Gilvarry",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "rollup -c",
     "watch": "rollup -c -w",

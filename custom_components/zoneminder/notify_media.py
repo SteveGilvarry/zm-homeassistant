@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Signed links to one event's picture and clip, for phone notifications.
 
 A notification leaves Home Assistant: it sits on a phone, in a notification

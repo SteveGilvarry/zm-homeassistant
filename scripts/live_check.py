@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Check a real ZoneMinder server against everything the integration needs.
 
 This is the script that proves a server will work before you spend time

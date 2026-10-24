@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Notice events opening and closing without MQTT.
 
 MQTT has to be set up on both ZoneMinder and Home Assistant, and when it

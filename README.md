@@ -7,7 +7,7 @@ up from the UI.
 [![HACS Custom][hacs-badge]][hacs]
 [![Validate][validate-badge]][validate-workflow]
 [![Tests][test-badge]][test-workflow]
-[![License: AGPL v3][license-badge]][license]
+[![License: Apache 2.0][license-badge]][license]
 
 ![The ZoneMinder card: four cameras, each with a 24-hour strip of recordings and motion underneath, and a preview of a motion event under the pointer](docs/images/card.jpg)
 
@@ -259,7 +259,7 @@ and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-AGPL-3.0-or-later. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
 
 [hacs]: https://github.com/hacs/integration
 [hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
@@ -268,4 +268,4 @@ AGPL-3.0-or-later. See [LICENSE](LICENSE).
 [test-workflow]: https://github.com/SteveGilvarry/zm-homeassistant/actions/workflows/test.yaml
 [test-badge]: https://github.com/SteveGilvarry/zm-homeassistant/actions/workflows/test.yaml/badge.svg
 [license]: LICENSE
-[license-badge]: https://img.shields.io/badge/License-AGPL%20v3-blue.svg
+[license-badge]: https://img.shields.io/badge/License-Apache%202.0-blue.svg

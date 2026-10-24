@@ -64,4 +64,4 @@ for `zoneminder`).
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-project's **AGPL-3.0-or-later** license.
+project's **Apache-2.0** license.

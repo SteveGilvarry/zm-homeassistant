@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Websocket commands for the ZoneMinder card.
 
 The card draws a camera's day as a strip of events and plays a clip when one

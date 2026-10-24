@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Select entities for a monitor's capture, analysis and recording mode.
 
 ZoneMinder 1.37 replaced the single "Function" dropdown with three independent

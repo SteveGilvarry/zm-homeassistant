@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Browse and play ZoneMinder recordings from Home Assistant's media panel.
 
 Recordings show up under Media > ZoneMinder, organised camera by camera and

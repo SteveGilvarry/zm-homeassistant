@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Event entities for the ZoneMinder integration.
 
 An event entity is the natural shape for "something happened at this time":

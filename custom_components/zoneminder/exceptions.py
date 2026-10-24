@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Show aiozoneminder errors in Home Assistant's UI."""
 
 from __future__ import annotations

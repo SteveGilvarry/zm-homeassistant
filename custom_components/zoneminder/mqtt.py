@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Real-time ZoneMinder events over MQTT.
 
 ZoneMinder publishes one topic per monitor under its ``ZM_MQTT_TOPIC_PREFIX``

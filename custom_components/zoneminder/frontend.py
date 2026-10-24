@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: Apache-2.0
 """Serve the ZoneMinder card with the integration.
 
 The card ships inside the integration and is registered on every dashboard,
