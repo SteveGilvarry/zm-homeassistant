@@ -27,7 +27,7 @@ from aiohttp import web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from custom_components.zoneminder.api import build_client  # noqa: E402
+from custom_components.zoneminder.api import client_from_entry_data  # noqa: E402
 from custom_components.zoneminder.const import PROXY_URL_BASE  # noqa: E402
 from custom_components.zoneminder.http import (  # noqa: E402
     _ALLOWED_PATHS,
@@ -175,7 +175,15 @@ async def main() -> int:
         return 2
 
     async with aiohttp.ClientSession() as session:
-        client = build_client(args.backend, host, username, password, session)
+        client = client_from_entry_data(
+            {
+                "backend": args.backend,
+                "host": host,
+                "username": username,
+                "password": password,
+            },
+            session,
+        )
         try:
             await client.authenticate()
         except Exception as err:  # noqa: BLE001
