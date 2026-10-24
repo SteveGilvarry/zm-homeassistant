@@ -25,8 +25,10 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
+    DEFAULT_INCLUDE_ARCHIVED,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     EVENT_FETCH_LIMIT,
@@ -179,8 +181,14 @@ class ZoneMinderDataUpdateCoordinator(DataUpdateCoordinator[ZoneMinderData]):
         await self._async_fetch_run_states()
 
         summaries: dict[int, EventSummary] = {}
+        # Passed only when off: aiozoneminder 0.1.0 doesn't take the keyword.
+        kwargs = (
+            {}
+            if self.entry.options.get(CONF_INCLUDE_ARCHIVED, DEFAULT_INCLUDE_ARCHIVED)
+            else {"include_archived": False}
+        )
         for monitor_id in monitors:
-            summary = await self.api.get_event_summary(monitor_id)
+            summary = await self.api.get_event_summary(monitor_id, **kwargs)
             if summary is not None:
                 summaries[monitor_id] = summary
         return summaries

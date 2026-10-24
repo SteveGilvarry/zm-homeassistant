@@ -22,6 +22,10 @@ CONF_ZMS_PATH: Final = "path_zms"
 CONF_EVENT_PERIODS: Final = "event_periods"
 EVENT_PERIODS: Final = ["hour", "day", "week", "month", "all"]
 DEFAULT_EVENT_PERIODS: Final = ["day"]
+#: Whether event counts take in archived events. Core and ha-zoneminder left
+#: them out by default; their setups carry over what they had.
+CONF_INCLUDE_ARCHIVED: Final = "include_archived"
+DEFAULT_INCLUDE_ARCHIVED: Final = True
 #: The modes a monitor's function switch turns on and off, from the old
 #: switch platform's command_on and command_off. No switch when unset.
 CONF_FUNCTION_ON: Final = "function_on"

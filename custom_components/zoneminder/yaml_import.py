@@ -24,6 +24,7 @@ from .const import (
     CONF_EVENT_PERIODS,
     CONF_FUNCTION_OFF,
     CONF_FUNCTION_ON,
+    CONF_INCLUDE_ARCHIVED,
     CONF_SCAN_INTERVAL,
     DOMAIN,
     MAX_SCAN_INTERVAL,
@@ -35,7 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 #: What core's sensor platform counted when monitored_conditions was unset.
 _DEFAULT_PERIODS = ["all"]
 #: Platform keys with nothing to map to. Reported, then ignored.
-_UNSUPPORTED = ("include_archived", "entity_namespace")
+_UNSUPPORTED = ("entity_namespace",)
 
 
 def platform_options(config: ConfigType) -> dict[str, Any]:
@@ -62,6 +63,10 @@ def platform_options(config: ConfigType) -> dict[str, Any]:
                 for period in block.get("monitored_conditions") or _DEFAULT_PERIODS:
                     if period not in periods:
                         periods.append(period)
+                # Core's sensors left archived events out unless asked.
+                options[CONF_INCLUDE_ARCHIVED] = options.get(
+                    CONF_INCLUDE_ARCHIVED, False
+                ) or bool(block.get(CONF_INCLUDE_ARCHIVED, False))
             elif domain == "switch":
                 for key, option in (
                     ("command_on", CONF_FUNCTION_ON),
