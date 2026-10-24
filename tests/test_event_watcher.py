@@ -184,3 +184,149 @@ async def test_api_v2_has_no_stream_and_keeps_polling(hass: HomeAssistant) -> No
 
     assert watcher.streaming is False
     api.get_events.assert_awaited()
+
+
+async def test_rejected_login_pauses_polling(hass: HomeAssistant) -> None:
+    """After a rejected login the watcher stops asking until reauthentication.
+
+    Retrying every few seconds piled up failed logins while the user fixed the
+    password.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiozoneminder import ZMAuthenticationError
+
+    from custom_components.zoneminder.event_watcher import ZoneMinderEventWatcher
+
+    api = MagicMock()
+    api.get_events = AsyncMock(side_effect=ZMAuthenticationError("Login failed"))
+    entry = MagicMock()
+    entry.runtime_data.coordinator.api = api
+
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    for _ in range(3):
+        await watcher.async_check()
+
+    assert api.get_events.await_count == 1
+
+
+async def test_rejected_login_ends_the_stream(hass: HomeAssistant) -> None:
+    """A rejected login on the event stream is not retried either."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiozoneminder import ZMAuthenticationError
+
+    from custom_components.zoneminder.event_watcher import ZoneMinderEventWatcher
+
+    connects = 0
+
+    async def rejected(since: int | None = None):
+        nonlocal connects
+        connects += 1
+        raise ZMAuthenticationError("Login failed")
+        yield  # pragma: no cover
+
+    api = MagicMock()
+    api.get_events = AsyncMock(return_value=[])
+    api.async_event_stream = rejected
+    entry = MagicMock()
+    entry.runtime_data.coordinator.api = api
+
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    watcher._unsub = lambda: None  # As if started.
+    await asyncio.wait_for(watcher._async_run_stream(), timeout=1)
+    await watcher.async_check()
+
+    assert connects == 1
+    assert api.get_events.await_count == 1
+    assert watcher.streaming is False
+
+
+def _rejecting_watcher(hass: HomeAssistant, api):
+    """Return a watcher whose coordinator listeners the test can fire."""
+    from unittest.mock import MagicMock
+
+    from custom_components.zoneminder.event_watcher import ZoneMinderEventWatcher
+
+    listeners = []
+
+    def add_listener(update):
+        listeners.append(update)
+        return lambda: listeners.remove(update)
+
+    coordinator = MagicMock()
+    coordinator.api = api
+    coordinator.last_update_success = False
+    coordinator.async_add_listener = add_listener
+    entry = MagicMock()
+    entry.runtime_data.coordinator = coordinator
+
+    def refreshed(success: bool) -> None:
+        coordinator.last_update_success = success
+        for update in list(listeners):
+            update()
+
+    return ZoneMinderEventWatcher(hass, entry), entry, refreshed
+
+
+async def test_polling_resumes_once_the_login_works_again(
+    hass: HomeAssistant,
+) -> None:
+    """A momentary rejection does not leave the watcher off for good.
+
+    Nothing is retried while the coordinator keeps failing; its next good
+    refresh lets the watcher poll again.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiozoneminder import ZMAuthenticationError
+
+    api = MagicMock()
+    api.get_events = AsyncMock(side_effect=ZMAuthenticationError("Login failed"))
+    watcher, _entry, refreshed = _rejecting_watcher(hass, api)
+
+    await watcher.async_check()
+    refreshed(False)
+    await watcher.async_check()
+    assert api.get_events.await_count == 1
+
+    api.get_events.side_effect = None
+    api.get_events.return_value = []
+    refreshed(True)
+    await watcher.async_check()
+    assert api.get_events.await_count == 2
+
+
+async def test_stream_restarts_once_the_login_works_again(
+    hass: HomeAssistant,
+) -> None:
+    """The stream task that ended on a rejection is started again, once."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiozoneminder import ZMAuthenticationError
+
+    connects = 0
+
+    async def rejected(since: int | None = None):
+        nonlocal connects
+        connects += 1
+        raise ZMAuthenticationError("Login failed")
+        yield  # pragma: no cover
+
+    api = MagicMock()
+    api.get_events = AsyncMock(return_value=[])
+    api.async_event_stream = rejected
+    watcher, entry, refreshed = _rejecting_watcher(hass, api)
+    watcher._unsub = lambda: None  # As if started.
+    await asyncio.wait_for(watcher._async_run_stream(), timeout=1)
+    assert connects == 1
+
+    refreshed(False)
+    entry.async_create_background_task.assert_not_called()
+
+    refreshed(True)
+    refreshed(True)
+    entry.async_create_background_task.assert_called_once()
+    restarted = entry.async_create_background_task.call_args.args[1]
+    await asyncio.wait_for(restarted, timeout=1)
+    assert connects == 2
