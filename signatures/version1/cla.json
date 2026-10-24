@@ -1,3 +1,12 @@
 {
-  "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "nabbi",
+      "id": 31355096,
+      "comment_id": 6381496219,
+      "created_at": "2026-10-24T07:33:05Z",
+      "repoId": 1431686003,
+      "pullRequestNo": 2
+    }
+  ]
 }
