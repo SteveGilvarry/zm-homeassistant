@@ -3,17 +3,17 @@
 
 The card ships inside the integration and is registered on every dashboard,
 so there is no resource to add by hand and the card always matches the
-integration's version.
+integration.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
-from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN
 
@@ -35,7 +35,7 @@ async def async_register_card(hass: HomeAssistant) -> None:
         _LOGGER.debug("No bundled card at %s, skipping", CARD_FILE)
         return
 
-    integration = await async_get_integration(hass, DOMAIN)
+    contents = await hass.async_add_executor_job(CARD_FILE.read_bytes)
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(CARD_FILE), cache_headers=False)]
     )
@@ -43,5 +43,6 @@ async def async_register_card(hass: HomeAssistant) -> None:
         add_extra_js_url,
     )
 
-    # The version busts browser caches when the integration is upgraded.
-    add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
+    # A hash of the file, so browsers fetch the card again whenever it
+    # changes, not only when the integration's version does.
+    add_extra_js_url(hass, f"{CARD_URL}?v={hashlib.sha256(contents).hexdigest()[:12]}")

@@ -58,22 +58,37 @@ function loadCameraStream(entity: string): Promise<void> {
   return cameraStreamLoad;
 }
 
-/** Whether a live player (in any shadow root below `root`) has frames on screen. */
-function playingVideo(root: Element): boolean {
+/**
+ * Whether the live player (in any shadow root below `root`) is showing moving
+ * video right now.
+ *
+ * Only a visible, playing video counts. Home Assistant's player swaps between
+ * HLS and WebRTC, and falls back to a still picture when a stream fails (for
+ * example after Home Assistant restarts). That picture is already upright, so
+ * it must not be shown in the turned layer.
+ */
+function showingVideo(root: Element): boolean {
+  let video = false;
   const stack: Array<Element | ShadowRoot> = [root];
   while (stack.length) {
     const node = stack.pop()!;
-    if (
-      node instanceof HTMLVideoElement &&
-      node.readyState >= 2 &&
-      node.videoWidth > 0
-    ) {
-      return true;
+    if (node instanceof HTMLElement) {
+      const box = node.getBoundingClientRect();
+      if (node !== root && (box.width === 0 || box.height === 0)) continue;
+      if (node instanceof HTMLImageElement && node.naturalWidth > 0) return false;
+      if (
+        node instanceof HTMLVideoElement &&
+        node.readyState >= 2 &&
+        node.videoWidth > 0 &&
+        !node.paused
+      ) {
+        video = true;
+      }
     }
     if (node instanceof Element && node.shadowRoot) stack.push(node.shadowRoot);
     stack.push(...Array.from(node.children));
   }
-  return false;
+  return video;
 }
 
 function zoneminderCameras(hass: HomeAssistant): string[] {
@@ -306,17 +321,16 @@ export class ZmCameraTile extends LitElement {
       this.livePoll = undefined;
       return;
     }
-    if (this.liveShowing || this.livePoll) return;
-    // Until its video plays, the player shows ZoneMinder's still, which is
-    // already upright and would come out sideways in the turned layer. The
-    // still underneath covers that gap instead.
+    if (this.livePoll) return;
+    // The turned layer shows only while the player has moving video. At any
+    // other time (starting up, switching from HLS to WebRTC, or showing a
+    // still after a stream fails) the upright still underneath covers it, so
+    // nothing comes out sideways. This keeps checking, because the player can
+    // drop back to a still at any point.
     this.livePoll = window.setInterval(() => {
-      if (playingVideo(stream)) {
-        this.liveShowing = true;
-        window.clearInterval(this.livePoll);
-        this.livePoll = undefined;
-      }
-    }, 300);
+      const showing = showingVideo(stream);
+      if (showing !== this.liveShowing) this.liveShowing = showing;
+    }, 500);
   }
 
   private get stateObj(): HassEntity | undefined {
@@ -1180,10 +1194,23 @@ export class ZoneMinderCard extends LitElement {
 
 // The integration loads this card on every dashboard, and older setups may
 // also list it as a manual resource. The second copy must step aside quietly.
-if (!customElements.get("zoneminder-card")) {
+//
+// Home Assistant loads this file alongside its own code, and since 2026.10
+// that code swaps in a polyfilled custom element registry. Anything defined
+// before the swap is lost, so on a cold load the card could vanish ("Custom
+// element doesn't exist"). Defining only once Home Assistant's own root
+// element exists puts the card in the registry Home Assistant uses.
+function register(): void {
+  if (customElements.get("zoneminder-card")) return;
   customElements.define("zm-camera-tile", ZmCameraTile);
   customElements.define("zoneminder-card", ZoneMinderCard);
   registerCardPicker();
+}
+
+if (customElements.get("home-assistant")) {
+  register();
+} else {
+  customElements.whenDefined("home-assistant").then(register);
 }
 
 function registerCardPicker(): void {
