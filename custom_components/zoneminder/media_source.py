@@ -245,6 +245,8 @@ class ZoneMinderMediaSource(MediaSource):
             if not event.has_video:
                 continue
             thumbnail_path = api.get_event_thumbnail_path(event.id)
+            # API v2 has no path the media proxy can serve a recording from.
+            playable = api.get_event_media_path(event.id) is not None
             children.append(
                 BrowseMediaSource(
                     domain=DOMAIN,
@@ -252,7 +254,7 @@ class ZoneMinderMediaSource(MediaSource):
                     media_class=MediaClass.VIDEO,
                     media_content_type=MediaType.VIDEO,
                     title=_event_title(event),
-                    can_play=True,
+                    can_play=playable,
                     can_expand=False,
                     thumbnail=(
                         async_proxy_path(entry_id, secret, thumbnail_path)

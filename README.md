@@ -285,7 +285,7 @@ issue.
 | Motion takes a few seconds     | Normal without MQTT; set MQTT up for under a second              |
 | WebRTC doesn't connect         | ZoneMinder advertises an address the browser can't reach; set `nat_ips` |
 | Cameras show but do not play   | No internal URL set under Settings > System > Network            |
-| No recordings in Media         | API v2, which doesn't serve them                                 |
+| Recordings in Media won't play | API v2, which doesn't serve them                                 |
 | Device links go nowhere        | Set the ZoneMinder web address in the integration's options      |
 
 ## Development
