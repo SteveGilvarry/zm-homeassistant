@@ -70,3 +70,4 @@ ha_config/.ha_run.lock
 ha_config/home-assistant.log.*
 ha_config/home-assistant_v2.db-*
 ha_config/backup-*/
+ha_config/.cache/

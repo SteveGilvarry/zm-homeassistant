@@ -9,6 +9,8 @@ up from the UI.
 [![Tests][test-badge]][test-workflow]
 [![License: AGPL v3][license-badge]][license]
 
+![The ZoneMinder card: four cameras, each with a 24-hour strip of recordings and motion underneath, and a preview of a motion event under the pointer](docs/images/card.jpg)
+
 ## What you get
 
 - **Live cameras.** One camera entity per monitor, with WebRTC straight from ZoneMinder
@@ -36,6 +38,8 @@ up from the UI.
   the cameras hang off.
 - **PTZ.** Pan, tilt, zoom, focus, home and stored presets, from the card or the
   `zoneminder.ptz` action.
+
+<img src="docs/images/device.png" width="620" alt="A camera's device page: Analysing, Capturing and Recording selects, a Trigger alarm button, and the camera's recent events">
 
 ## Requirements
 
@@ -76,6 +80,8 @@ Then restart Home Assistant.
   for API v2
 - **Username and password**
 - **Use MQTT for real-time events**
+
+<img src="docs/images/setup.png" width="440" alt="The Connect to ZoneMinder dialog, with a choice of ZoneMinder API v3 or API v2 and a server URL field">
 
 ## Choosing an API
 
