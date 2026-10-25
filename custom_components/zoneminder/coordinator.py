@@ -181,14 +181,13 @@ class ZoneMinderDataUpdateCoordinator(DataUpdateCoordinator[ZoneMinderData]):
         await self._async_fetch_run_states()
 
         summaries: dict[int, EventSummary] = {}
-        # Passed only when off: aiozoneminder 0.1.0 doesn't take the keyword.
-        kwargs = (
-            {}
-            if self.entry.options.get(CONF_INCLUDE_ARCHIVED, DEFAULT_INCLUDE_ARCHIVED)
-            else {"include_archived": False}
+        include_archived = self.entry.options.get(
+            CONF_INCLUDE_ARCHIVED, DEFAULT_INCLUDE_ARCHIVED
         )
         for monitor_id in monitors:
-            summary = await self.api.get_event_summary(monitor_id, **kwargs)
+            summary = await self.api.get_event_summary(
+                monitor_id, include_archived=include_archived
+            )
             if summary is not None:
                 summaries[monitor_id] = summary
         return summaries
