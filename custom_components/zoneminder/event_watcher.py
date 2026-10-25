@@ -247,6 +247,7 @@ class ZoneMinderEventWatcher:
 
     def _pause_for_auth(self, err: ZMAuthenticationError) -> None:
         self.streaming = False
+        self._forget_alarm_states()
         if self._auth_failed:
             return
         _LOGGER.debug("Event checks paused until the login works again: %s", err)
