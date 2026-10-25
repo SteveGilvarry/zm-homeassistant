@@ -18,7 +18,7 @@ docker compose up -d            # HA available at http://localhost:8123
 ```
 
 The integration source lives in `custom_components/zoneminder/`. Talking to
-ZoneMinder is done by [aiozoneminder](https://github.com/SteveGilvarry/aiozoneminder),
+ZoneMinder is done by [aiozoneminder](https://github.com/ZoneMinder/aiozoneminder),
 a separate library with one client per API: API v3
 ([zm-api](https://github.com/SteveGilvarry/zm-api)) and the built-in API v2.
 Changes to how ZoneMinder is called belong there. This repo holds the Home
