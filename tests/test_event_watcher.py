@@ -186,6 +186,49 @@ async def test_api_v2_has_no_stream_and_keeps_polling(hass: HomeAssistant) -> No
     api.get_events.assert_awaited()
 
 
+async def test_stream_drop_withdraws_the_live_alarm_state(hass: HomeAssistant) -> None:
+    """A dropped stream can't report the alarm ending, so its last state is withdrawn.
+
+    The motion sensor follows the stream's alarm state while it's up; left at
+    "alarm" after a drop, it would stay on long after the motion ended.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from aiozoneminder import ZMConnectionError
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+    from custom_components.zoneminder.const import SIGNAL_ALARM_STATE
+    from custom_components.zoneminder.event_watcher import ZoneMinderEventWatcher
+
+    received: list[str] = []
+    async_dispatcher_connect(hass, SIGNAL_ALARM_STATE.format(2), received.append)
+
+    async def stream_then_drop(since: int | None = None):
+        yield "alarm_state", {"monitor_id": 2, "state": "alarm"}
+        raise ZMConnectionError("connection reset")
+
+    api = MagicMock()
+    api.get_events = AsyncMock(return_value=[])
+    api.async_event_stream = stream_then_drop
+    entry = MagicMock()
+    entry.runtime_data.coordinator.api = api
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    unsub = MagicMock()
+    watcher._unsub = unsub
+
+    async def stop_after_one_drop(_delay: float) -> None:
+        watcher._unsub = None  # As if stopped, so the loop ends after the drop.
+
+    with patch(
+        "custom_components.zoneminder.event_watcher.asyncio.sleep", stop_after_one_drop
+    ):
+        await watcher._async_run_stream()
+    await hass.async_block_till_done()
+
+    assert received == ["alarm", "unknown"]
+    assert watcher.streaming is False
+
+
 async def test_events_open_before_the_stream_still_end(hass: HomeAssistant) -> None:
     """An event running when the stream connected gets its end within 30 s.
 
@@ -357,3 +400,36 @@ async def test_stream_restarts_once_the_login_works_again(
     restarted = entry.async_create_background_task.call_args.args[1]
     await asyncio.wait_for(restarted, timeout=1)
     assert connects == 2
+
+
+async def test_rejected_login_withdraws_the_live_alarm_state(
+    hass: HomeAssistant,
+) -> None:
+    """A stream ended by a rejected login can't report the alarm ending either."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiozoneminder import ZMAuthenticationError
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+    from custom_components.zoneminder.const import SIGNAL_ALARM_STATE
+    from custom_components.zoneminder.event_watcher import ZoneMinderEventWatcher
+
+    received: list[str] = []
+    async_dispatcher_connect(hass, SIGNAL_ALARM_STATE.format(2), received.append)
+
+    async def stream_then_reject(since: int | None = None):
+        yield "alarm_state", {"monitor_id": 2, "state": "alarm"}
+        raise ZMAuthenticationError("Login failed")
+
+    api = MagicMock()
+    api.get_events = AsyncMock(return_value=[])
+    api.async_event_stream = stream_then_reject
+    entry = MagicMock()
+    entry.runtime_data.coordinator.api = api
+    watcher = ZoneMinderEventWatcher(hass, entry)
+    watcher._unsub = MagicMock()
+
+    await watcher._async_run_stream()
+    await hass.async_block_till_done()
+
+    assert received == ["alarm", "unknown"]
