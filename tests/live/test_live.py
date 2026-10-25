@@ -80,43 +80,6 @@ from .conftest import LiveServer, LiveSettings, entry_data
 
 pytestmark = pytest.mark.timeout(300)
 
-# Fixes in open pull requests. Until they are merged, the tests marked with
-# them are expected to fail on the API named, and pass once they are.
-PR_V2_PTZ = (
-    "fixed by the open PR: fix-high: send API v2 PTZ through ZoneMinder's "
-    "control request (aiozoneminder)"
-)
-PR_V3_SAVE_RUN_STATE = (
-    "fixed by the open PR: fix-medium: send is_active when creating an API v3 "
-    "run state (aiozoneminder)"
-)
-PR_V2_EVENT_END = (
-    "fixed by the open PR: fix-high: read API v2 event ends from EndDateTime "
-    "(aiozoneminder)"
-)
-PR_V2_STATUS = (
-    "fixed by the open PR: fix-low: read API v2 live status and event summaries "
-    "from monitors.json (aiozoneminder)"
-)
-PR_V2_PERMISSION = (
-    "fixed by the open PR: fix-high: raise ZMApiError, not an auth error, for "
-    "API v2 permission refusals (aiozoneminder)"
-)
-PR_DECODING = (
-    "fixed by the open PR: fix-low: list ZoneMinder's KeyFrames+Ondemand "
-    "decoding value (aiozoneminder), and fix-low: offer ZoneMinder's "
-    "KeyFrames+Ondemand decoding value in the action"
-)
-PR_RUNNING_UNKNOWN = (
-    "fixed by the open PR: fix-medium: report ZoneMinder's running state as "
-    "unknown when it can't be read (aiozoneminder), and fix-medium: show "
-    "ZoneMinder running as unknown when its status can't be read"
-)
-PR_MEDIA_UNPLAYABLE = (
-    "fixed by the open PR: fix-medium: don't offer to play recordings the "
-    "backend can't serve"
-)
-
 #: Name of the run state the save test creates and deletes again.
 TEST_RUN_STATE = "ha-live-test"
 
@@ -281,7 +244,6 @@ async def test_config_flow(
         await hass.async_block_till_done()
 
 
-@pytest.mark.live_xfail("v2", reason=PR_V2_STATUS)
 async def test_entities_match_server(
     hass: HomeAssistant, server: LiveServer, entry: MockConfigEntry
 ) -> None:
@@ -330,7 +292,6 @@ async def test_camera_image(
     assert image.content[:3] == b"\xff\xd8\xff", image.content[:20]
 
 
-@pytest.mark.live_xfail("v2", reason=PR_MEDIA_UNPLAYABLE)
 async def test_media_browser(
     hass: HomeAssistant,
     server: LiveServer,
@@ -375,8 +336,6 @@ async def test_media_browser(
         assert b"ftyp" in body[:64], body[:60]
 
 
-@pytest.mark.live_xfail("v2", reason=PR_V2_PERMISSION)
-@pytest.mark.live_xfail("v3", reason=PR_RUNNING_UNKNOWN)
 async def test_restricted_user(
     hass: HomeAssistant, server: LiveServer, settings: LiveSettings
 ) -> None:
@@ -461,7 +420,6 @@ async def test_capturing_select(
 
 
 @pytest.mark.live_write
-@pytest.mark.live_xfail("v2", "v3", reason=PR_DECODING)
 async def test_decoding_keyframes_ondemand(
     hass: HomeAssistant, entry: MockConfigEntry, settings: LiveSettings
 ) -> None:
@@ -492,7 +450,6 @@ async def test_decoding_keyframes_ondemand(
 
 
 @pytest.mark.live_write
-@pytest.mark.live_xfail("v2", reason=PR_V2_EVENT_END)
 async def test_alarm_buttons_and_motion(
     hass: HomeAssistant, entry: MockConfigEntry, settings: LiveSettings
 ) -> None:
@@ -568,7 +525,6 @@ async def _newer_events(client: Any, monitor_id: int, newest: int) -> list[Any]:
 
 
 @pytest.mark.live_write
-@pytest.mark.live_xfail("v2", reason=PR_V2_PTZ)
 async def test_ptz(
     hass: HomeAssistant, entry: MockConfigEntry, settings: LiveSettings
 ) -> None:
@@ -584,7 +540,6 @@ async def test_ptz(
 
 
 @pytest.mark.live_write
-@pytest.mark.live_xfail("v3", reason=PR_V3_SAVE_RUN_STATE)
 async def test_run_states(
     hass: HomeAssistant,
     server: LiveServer,
