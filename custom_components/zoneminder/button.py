@@ -11,14 +11,18 @@ from __future__ import annotations
 import logging
 
 from aiozoneminder import Monitor
-from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.components.button import (
+    ButtonDeviceClass,
+    ButtonEntity,
+    ButtonEntityDescription,
+)
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
-from .entity import ZoneMinderMonitorEntity
+from .entity import ZoneMinderMonitorEntity, ZoneMinderServerEntity
 from .exceptions import ha_errors
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,6 +35,29 @@ _PTZ_BUTTONS: tuple[tuple[str, str], ...] = (
 )
 
 
+#: ZoneMinder's own start, stop and restart. Stopping halts every camera's
+#: recording, so only restart is enabled until someone asks for the others.
+SERVER_BUTTONS: tuple[ButtonEntityDescription, ...] = (
+    ButtonEntityDescription(
+        key="restart",
+        device_class=ButtonDeviceClass.RESTART,
+        entity_category=EntityCategory.CONFIG,
+    ),
+    ButtonEntityDescription(
+        key="start",
+        translation_key="start",
+        entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
+    ),
+    ButtonEntityDescription(
+        key="stop",
+        translation_key="stop",
+        entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ZoneMinderConfigEntry,
@@ -40,7 +67,10 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     presets = entry.runtime_data.ptz_presets
 
-    entities: list[ButtonEntity] = []
+    entities: list[ButtonEntity] = [
+        ZoneMinderServerControlButton(coordinator, entry, description)
+        for description in SERVER_BUTTONS
+    ]
     for monitor in coordinator.data.monitors.values():
         entities.append(ZoneMinderTriggerAlarmButton(coordinator, entry, monitor))
         entities.append(ZoneMinderCancelAlarmButton(coordinator, entry, monitor))
@@ -152,3 +182,23 @@ class ZoneMinderPTZPresetButton(ZoneMinderMonitorEntity, ButtonEntity):
             await self.coordinator.api.ptz(
                 self._monitor_id, "preset", preset=self._preset
             )
+
+
+class ZoneMinderServerControlButton(ZoneMinderServerEntity, ButtonEntity):
+    """Start, stop or restart ZoneMinder. Needs System edit rights."""
+
+    def __init__(
+        self,
+        coordinator: ZoneMinderDataUpdateCoordinator,
+        entry: ZoneMinderConfigEntry,
+        description: ButtonEntityDescription,
+    ) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator, entry, description.key)
+        self.entity_description = description
+
+    async def async_press(self) -> None:
+        """Send the command, then refresh to pick up the daemons' new state."""
+        async with ha_errors():
+            await self.coordinator.api.server_control(self.entity_description.key)
+        await self.coordinator.async_request_refresh()

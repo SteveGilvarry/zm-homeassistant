@@ -20,14 +20,14 @@ import asyncio
 import os
 from pathlib import Path
 import sys
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 import aiohttp
 from aiohttp import web
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from custom_components.zoneminder.api import build_client  # noqa: E402
+from custom_components.zoneminder.api import client_from_entry_data  # noqa: E402
 from custom_components.zoneminder.const import PROXY_URL_BASE  # noqa: E402
 from custom_components.zoneminder.http import (  # noqa: E402
     _ALLOWED_PATHS,
@@ -112,7 +112,13 @@ async def check_stream(client, monitor_id: int) -> bool:
             if response.status >= 400:
                 return web.Response(status=response.status)
             if upstream.endswith(".m3u8"):
-                body = _rewrite_playlist(await response.text(), upstream, ENTRY, SECRET)
+                body = _rewrite_playlist(
+                    await response.text(),
+                    upstream,
+                    ENTRY,
+                    SECRET,
+                    base_path=urlsplit(client.host).path,
+                )
                 return web.Response(
                     body=body.encode(), content_type="application/vnd.apple.mpegurl"
                 )
@@ -175,7 +181,15 @@ async def main() -> int:
         return 2
 
     async with aiohttp.ClientSession() as session:
-        client = build_client(args.backend, host, username, password, session)
+        client = client_from_entry_data(
+            {
+                "backend": args.backend,
+                "host": host,
+                "username": username,
+                "password": password,
+            },
+            session,
+        )
         try:
             await client.authenticate()
         except Exception as err:  # noqa: BLE001

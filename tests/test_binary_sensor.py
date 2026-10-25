@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import patch
 
+from aioresponses import aioresponses
+from aiozoneminder import ServerInfo
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from pytest_homeassistant_custom_component.common import (
@@ -130,3 +133,25 @@ async def test_server_running_sensor(
     assert state is not None
     assert state.state == STATE_ON
     assert state.attributes["daemons_running"] == 2
+
+
+async def test_server_running_unknown_without_status(
+    hass: HomeAssistant, config_entry: MockConfigEntry, zm_api: aioresponses
+) -> None:
+    """A user who may not read the server status sees unknown, not off.
+
+    The daemon tally would read 0 of 0, so it is left out.
+    """
+    with patch(
+        "aiozoneminder.client.v3.ZoneMinderV3Client.get_server_info",
+        return_value=ServerInfo(version="1.38.0", running=None),
+    ):
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.zoneminder_test_running")
+    assert state is not None
+    assert state.state == STATE_UNKNOWN
+    assert "daemons_running" not in state.attributes
+    assert "daemons_total" not in state.attributes

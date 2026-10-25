@@ -15,7 +15,11 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from .const import MQTT_MOTION_TIMEOUT, SIGNAL_ALARM_STATE, SIGNAL_MQTT_EVENT
@@ -30,6 +34,19 @@ _LOGGER = logging.getLogger(__name__)
 #: by motion analysis.
 _CONTINUOUS_CAUSE = "Continuous"
 _ALARM_STATES = ("idle", "prealarm", "alarm", "alert")
+
+
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
+    """Accept the old `binary_sensor: - platform: zoneminder` YAML.
+
+    Its settings are imported with the server (see yaml_import.py); this
+    only stops Home Assistant reporting the platform as unsupported.
+    """
 
 
 async def async_setup_entry(
@@ -278,14 +295,20 @@ class ZoneMinderServerRunning(ZoneMinderServerEntity, BinarySensorEntity):
         super().__init__(coordinator, entry, "running")
 
     @property
-    def is_on(self) -> bool:
-        """Return True when ZoneMinder reports itself running."""
+    def is_on(self) -> bool | None:
+        """Return True when ZoneMinder reports itself running.
+
+        None (unknown) when the status could not be read, for example when the
+        user may not view System.
+        """
         return self.coordinator.data.server.running
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the daemon tally."""
+        """Return the daemon tally, when the status could be read."""
         server = self.coordinator.data.server
+        if server.running is None:
+            return {}
         return {
             "daemons_running": server.daemons_running,
             "daemons_total": server.daemons_total,

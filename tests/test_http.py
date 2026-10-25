@@ -45,6 +45,23 @@ def test_master_playlist_child_is_proxied() -> None:
     assert uris == [f"/api/zoneminder/{ENTRY}/{SECRET}/api/v3/live/1/hls/live.m3u8"]
 
 
+def test_prefixed_paths_behind_a_proxy_are_proxied() -> None:
+    """zm-api behind /zm (server.public_prefix) writes paths that carry the prefix.
+
+    They must come back as the same api/v3 paths the proxy allows, not zm/api/v3
+    (refused, so live video never started).
+    """
+    master = MASTER.replace(
+        "/api/v3/live/1/hls/live.m3u8", "/zm/api/v3/live/1/hls/live.m3u8"
+    )
+    result = _rewrite_playlist(
+        master, "api/v3/live/1/hls/master.m3u8", ENTRY, SECRET, base_path="/zm"
+    )
+    uris = [line for line in result.splitlines() if line and not line.startswith("#")]
+
+    assert uris == [f"/api/zoneminder/{ENTRY}/{SECRET}/api/v3/live/1/hls/live.m3u8"]
+
+
 def test_relative_segments_are_proxied() -> None:
     """Relative segment names resolve against the playlist, then get proxied."""
     result = _rewrite_playlist(CHILD, "api/v3/live/1/hls/live.m3u8", ENTRY, SECRET)
@@ -94,6 +111,40 @@ async def test_proxy_serves_media(
 
     assert response.status == HTTPStatus.OK
     assert await response.read() == b"\xff\xd8jpeg-bytes"
+
+
+async def test_proxy_keeps_the_length_of_ranged_media(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    hass_client: ClientSessionGenerator,
+    zm_api: aioresponses,
+) -> None:
+    """A range reply goes out sized, not chunked, with its Content-Range."""
+    zm_api.get(
+        f"{HOST}/api/v3/events/299/video",
+        status=206,
+        body=b"x" * 1024,
+        headers={
+            "Content-Type": "video/mp4",
+            "Content-Length": "1024",
+            "Content-Range": "bytes 0-1023/317332",
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+    client = await hass_client()
+    path = async_proxy_path(
+        setup_integration.entry_id,
+        setup_integration.runtime_data.proxy_secret,
+        "api/v3/events/299/video",
+    )
+    response = await client.get(path, headers={"Range": "bytes=0-1023"})
+
+    assert response.status == HTTPStatus.PARTIAL_CONTENT
+    assert response.headers["Content-Length"] == "1024"
+    assert response.headers["Content-Range"] == "bytes 0-1023/317332"
+    assert "Transfer-Encoding" not in response.headers
+    assert len(await response.read()) == 1024
 
 
 async def test_proxy_rewrites_live_playlist(
