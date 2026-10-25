@@ -41,6 +41,10 @@ from .mqtt import ZoneMinderMQTTEvent
 _LOGGER = logging.getLogger(__name__)
 
 WATCH_INTERVAL = timedelta(seconds=5)
+#: While the event stream is up, still check this many ticks apart (30 s): the
+#: stream doesn't report the end of an event that was already running when it
+#: connected, so those would otherwise only close at the next reconnect.
+STREAMING_CHECK_TICKS = 6
 #: How long to wait before trying the stream again after it fails.
 _STREAM_BACKOFF = (5, 15, 30, 60)
 #: Servers without a stream are asked again this often, in case of an upgrade.
@@ -103,6 +107,10 @@ class ZoneMinderEventWatcher:
         #: True while the event stream is connected; polling pauses then.
         self.streaming = False
         self._last_event_id: int | None = None
+        #: Monitors the stream has sent a live alarm state for. That state is
+        #: only current while the stream is up, so it is withdrawn on a drop.
+        self._alarm_monitors: set[int] = set()
+        self._streaming_ticks = 0
         #: Set when ZoneMinder rejects the login. Retrying every few seconds
         #: would only pile up failed logins (and trip fail2ban or a login
         #: throttle) while the user fixes the password, so the watcher waits
@@ -140,6 +148,10 @@ class ZoneMinderEventWatcher:
     async def _async_tick(self, _now) -> None:
         if not self.streaming:
             await self.async_check()
+            return
+        self._streaming_ticks += 1
+        if self._streaming_ticks % STREAMING_CHECK_TICKS == 0:
+            await self.async_check()
 
     async def _async_run_stream(self) -> None:
         """Hold the event stream open, reconnecting for as long as we run."""
@@ -174,6 +186,7 @@ class ZoneMinderEventWatcher:
             except (aiohttp.ClientError, TimeoutError) as err:
                 _LOGGER.debug("Event stream dropped: %s", err)
             self.streaming = False
+            self._forget_alarm_states()
             await asyncio.sleep(
                 _STREAM_BACKOFF[min(failures, len(_STREAM_BACKOFF) - 1)]
             )
@@ -184,11 +197,27 @@ class ZoneMinderEventWatcher:
             self._stream_paused = True
 
     @callback
+    def _forget_alarm_states(self) -> None:
+        """Tell the motion sensors the live alarm state is no longer known.
+
+        Without the stream nothing would ever replace the last state it sent,
+        so a sensor left at "alarm" would stay on after the motion ended. With
+        "unknown" the sensors go back to judging motion from polled events.
+        """
+        for monitor_id in self._alarm_monitors:
+            async_dispatcher_send(
+                self.hass, SIGNAL_ALARM_STATE.format(monitor_id), "unknown"
+            )
+        self._alarm_monitors.clear()
+
+    @callback
     def _handle_stream(self, message_type: str, data: dict) -> None:
         if message_type == "alarm_state":
+            monitor_id = int(data["monitor_id"])
+            self._alarm_monitors.add(monitor_id)
             async_dispatcher_send(
                 self.hass,
-                SIGNAL_ALARM_STATE.format(int(data["monitor_id"])),
+                SIGNAL_ALARM_STATE.format(monitor_id),
                 str(data.get("state", "unknown")),
             )
             return
@@ -227,6 +256,7 @@ class ZoneMinderEventWatcher:
 
     def _pause_for_auth(self, err: ZMAuthenticationError) -> None:
         self.streaming = False
+        self._forget_alarm_states()
         if self._auth_failed:
             return
         _LOGGER.debug("Event checks paused until the login works again: %s", err)

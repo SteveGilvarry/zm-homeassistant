@@ -45,6 +45,23 @@ def test_master_playlist_child_is_proxied() -> None:
     assert uris == [f"/api/zoneminder/{ENTRY}/{SECRET}/api/v3/live/1/hls/live.m3u8"]
 
 
+def test_prefixed_paths_behind_a_proxy_are_proxied() -> None:
+    """zm-api behind /zm (server.public_prefix) writes paths that carry the prefix.
+
+    They must come back as the same api/v3 paths the proxy allows, not zm/api/v3
+    (refused, so live video never started).
+    """
+    master = MASTER.replace(
+        "/api/v3/live/1/hls/live.m3u8", "/zm/api/v3/live/1/hls/live.m3u8"
+    )
+    result = _rewrite_playlist(
+        master, "api/v3/live/1/hls/master.m3u8", ENTRY, SECRET, base_path="/zm"
+    )
+    uris = [line for line in result.splitlines() if line and not line.startswith("#")]
+
+    assert uris == [f"/api/zoneminder/{ENTRY}/{SECRET}/api/v3/live/1/hls/live.m3u8"]
+
+
 def test_relative_segments_are_proxied() -> None:
     """Relative segment names resolve against the playlist, then get proxied."""
     result = _rewrite_playlist(CHILD, "api/v3/live/1/hls/live.m3u8", ENTRY, SECRET)

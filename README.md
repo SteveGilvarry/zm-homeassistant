@@ -43,14 +43,16 @@ up from the UI.
 
 ## Requirements
 
-- Home Assistant 2025.2 or newer
+- Home Assistant 2025.3 or newer
 - ZoneMinder with either [ZoneMinder API v3](https://github.com/SteveGilvarry/zm-api)
-  (recommended) or its built-in API v2 (ZoneMinder 1.36+)
+  (recommended) or its built-in API v2 (ZoneMinder 1.36+). API v3 needs ZoneMinder
+  1.39, the development series, because it runs on 1.39's database. On the stable 1.38
+  release, or legacy 1.36, use API v2.
 - An internal Home Assistant URL set under Settings > System > Network, so live video can
   be proxied
 - Optional: an MQTT broker, for events in under a second
 
-Home Assistant installs [aiozoneminder](https://github.com/SteveGilvarry/aiozoneminder),
+Home Assistant installs [aiozoneminder](https://github.com/ZoneMinder/aiozoneminder),
 the client library this integration uses, automatically.
 
 ## Installation
@@ -88,8 +90,9 @@ Then restart Home Assistant.
 |                | API v3 (default)                       | API v2 (built in)                   |
 | -------------- | -------------------------------------- | ----------------------------------- |
 | Talks to       | [ZoneMinder API v3](https://github.com/SteveGilvarry/zm-api) at `/api/v3` | ZoneMinder's CakePHP API at `/zm/api` |
-| Auth           | JWT bearer, refreshed automatically    | Query-parameter token               |
+| Auth           | JWT bearer, refreshed automatically; always needs a ZoneMinder user | Query-parameter token, or none when ZoneMinder's authentication is off |
 | Default port   | 8080                                   | your ZoneMinder web port            |
+| ZoneMinder     | 1.39 (development)                     | 1.36, 1.38 and 1.39                 |
 | Live video     | WebRTC (WHEP), RTSP or HLS             | go2rtc RTSP, or MJPEG               |
 | Recordings     | Yes: media browser, card, notifications | Not yet                            |
 | Run states     | Switch and save                        | Switch                              |
@@ -289,6 +292,7 @@ issue.
 | Cameras show but do not play   | No internal URL set under Settings > System > Network            |
 | Recordings in Media won't play | API v2, which doesn't serve them                                 |
 | Device links go nowhere        | Set the ZoneMinder web address in the integration's options      |
+| API v3 says "Invalid username or password" on a server without logins | ZoneMinder's authentication (`ZM_OPT_USE_AUTH`) is off. API v3 always needs a user: turn it on (Options > System; on by default only for new installs from ZoneMinder 1.39.41) and create one, or pick API v2 and type any username and password |
 
 ## Development
 
