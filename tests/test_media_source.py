@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from aioresponses import aioresponses
 from homeassistant.components import media_source
 from homeassistant.components.media_source import Unresolvable
@@ -64,6 +66,27 @@ async def test_browse_lists_playable_recordings(
     assert child.can_play is True
     assert child.thumbnail.startswith(f"/api/zoneminder/{entry_id}/")
     assert "api/v3/events/299/thumbnail" in child.thumbnail
+
+
+async def test_recordings_without_a_media_path_are_not_playable(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """API v2 cannot serve recordings, so they are listed but not playable.
+
+    Offering play only to fail with "This backend cannot serve recordings"
+    looked like a broken recording.
+    """
+    entry_id = setup_integration.entry_id
+    with patch(
+        "aiozoneminder.client.v3.ZoneMinderV3Client.get_event_media_path",
+        return_value=None,
+    ):
+        listing = await media_source.async_browse_media(
+            hass, f"media-source://zoneminder/{entry_id}/1/2026-08-22"
+        )
+
+    assert listing.children
+    assert not any(child.can_play for child in listing.children)
 
 
 async def test_resolve_returns_a_proxied_url(

@@ -15,6 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.zoneminder.const import (
     CONF_BACKEND,
+    CONF_EVENT_PERIODS,
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
     DOMAIN,
@@ -48,6 +49,9 @@ async def test_user_flow_creates_entry(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_HOST] == HOST
     assert result["data"][CONF_BACKEND] == "v3"
+    # ZoneMinder has no serial number, and HA forbids URLs as unique ids, so
+    # duplicates are caught by comparing hosts instead.
+    assert result["result"].unique_id is None
     assert result["options"][CONF_MQTT_ENABLED] is True
 
 
@@ -159,7 +163,7 @@ async def test_reconfigure_changes_host(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert config_entry.data[CONF_HOST] == "http://new-server:8080"
-    assert config_entry.unique_id == "http://new-server:8080"
+    assert config_entry.unique_id is None
     assert config_entry.title == "ZoneMinder (http://new-server:8080)"
 
 
@@ -170,7 +174,6 @@ async def test_reconfigure_rejects_address_of_other_entry(
     config_entry.add_to_hass(hass)
     other = MockConfigEntry(
         domain=DOMAIN,
-        unique_id="http://other-server:8080",
         data={**USER_INPUT, CONF_HOST: "http://other-server:8080"},
     )
     other.add_to_hass(hass)
@@ -263,3 +266,64 @@ async def test_yaml_from_the_core_integration_is_imported(hass: HomeAssistant) -
     assert ir.async_get(hass).async_get_issue(
         "homeassistant", "deprecated_yaml_zoneminder"
     )
+
+
+async def test_yaml_zms_path_is_kept(hass: HomeAssistant) -> None:
+    """The old integration's path_zms carries over, so streams keep working."""
+    from homeassistant.setup import async_setup_component
+
+    with (
+        patch(
+            "custom_components.zoneminder.config_flow._async_validate",
+            return_value={"version": "1.36.33", "monitor_count": 2},
+        ),
+        patch("custom_components.zoneminder.async_setup_entry", return_value=True),
+    ):
+        assert await async_setup_component(
+            hass,
+            DOMAIN,
+            {
+                DOMAIN: [
+                    {
+                        "host": "zm.local",
+                        "path_zms": "/cgi-bin-zm/nph-zms",
+                        "username": "admin",
+                        "password": "hunter2",
+                    }
+                ]
+            },
+        )
+        await hass.async_block_till_done()
+
+    (entry,) = hass.config_entries.async_entries(DOMAIN)
+    assert entry.data["path_zms"] == "/cgi-bin-zm/nph-zms"
+
+
+async def test_stored_zms_path_reaches_the_client(hass: HomeAssistant) -> None:
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    from custom_components.zoneminder.api import client_from_entry_data
+
+    client = client_from_entry_data(
+        {
+            "backend": "legacy",
+            CONF_HOST: "http://zm.local/zm",
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "hunter2",
+            "path_zms": "/cgi-bin-zm/nph-zms",
+        },
+        async_get_clientsession(hass),
+    )
+    assert client.get_stream_url(1).startswith("http://zm.local/cgi-bin-zm/nph-zms?")
+
+
+async def test_options_flow_sets_event_count_periods(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    result = await hass.config_entries.options.async_init(setup_integration.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_MQTT_ENABLED: False, CONF_EVENT_PERIODS: ["day", "week"]},
+    )
+    await hass.async_block_till_done()
+    assert setup_integration.options[CONF_EVENT_PERIODS] == ["day", "week"]

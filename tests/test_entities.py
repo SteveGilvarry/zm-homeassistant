@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 from aioresponses import aioresponses
@@ -9,10 +10,11 @@ from aiozoneminder import ZMApiError
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.util.yaml import load_yaml
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.zoneminder.const import DOMAIN
+from custom_components.zoneminder.const import CONF_EVENT_PERIODS, DOMAIN
 
 from .const import HOST
 
@@ -218,7 +220,6 @@ async def test_sensors_report_server_and_monitor_health(
 ) -> None:
     """The NVR-level numbers are exposed, not just per-camera ones."""
     assert hass.states.get("sensor.driveway_capture_rate").state == "10.94"
-    assert hass.states.get("sensor.driveway_events_today").state == "85"
     assert hass.states.get("sensor.zoneminder_test_version").state == "1.39.22"
     assert hass.states.get("sensor.zoneminder_test_monitors").state == "3"
 
@@ -284,6 +285,19 @@ async def test_set_monitor_state_service(
     assert f"{HOST}/api/v3/monitors/1" in patched
 
 
+def test_service_decoding_options_are_zoneminder_values() -> None:
+    """The service's Decoding choices are the values of ZoneMinder's enum."""
+    services = load_yaml("custom_components/zoneminder/services.yaml")
+    field = services["set_monitor_state"]["fields"]["decoding"]
+    assert field["selector"]["select"]["options"] == [
+        "None",
+        "Ondemand",
+        "KeyFrames",
+        "KeyFrames+Ondemand",
+        "Always",
+    ]
+
+
 async def test_event_entity_fires_on_mqtt(
     hass: HomeAssistant, setup_integration: MockConfigEntry
 ) -> None:
@@ -334,6 +348,10 @@ async def test_diagnostics_redact_secrets(
     assert "topsecret" not in dumped
     # The camera's RTSP password from the monitor fixture.
     assert "admin:secret@" not in dumped
+    # Signs the event links in notifications, which need no login: with it,
+    # anyone could forge a link to any clip.
+    notify_key = setup_integration.data["notify_key"]
+    assert notify_key not in dumped
     assert "**redacted**" in dumped
     assert diagnostics["server"]["version"] == "1.39.22"
 
@@ -351,9 +369,8 @@ async def test_a_camera_that_never_recorded_reads_zero(
         assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
 
-    assert hass.states.get("sensor.gate_events_today").state == "0"
+    assert hass.states.get("sensor.gate_events_past_day").state == "0"
     assert hass.states.get("sensor.gate_recording_storage").state == "0.0"
-    assert hass.states.get("sensor.driveway_events_today").state == "85"
 
 
 async def test_continuous_chunks_are_not_motion(
@@ -405,3 +422,84 @@ async def test_latest_event_image(
     response = await client.get(driveway.attributes["entity_picture"])
     assert response.status == 200
     assert await response.read() == b"\xff\xd8driveway"
+
+
+async def test_event_count_periods_follow_the_option(
+    hass: HomeAssistant, config_entry: MockConfigEntry, zm_api: aioresponses
+) -> None:
+    """Each chosen period gets a sensor; the default is just the past day."""
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={**config_entry.options, CONF_EVENT_PERIODS: ["hour", "all"]},
+    )
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.driveway_events_past_hour").state == "6"
+    assert hass.states.get("sensor.driveway_total_events").state == "126"
+    assert hass.states.get("sensor.driveway_events_past_day") is None
+
+
+async def test_default_event_count_is_the_past_day(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """ZoneMinder's day count is a rolling 24 hours, not since midnight."""
+    assert hass.states.get("sensor.driveway_events_past_day").state == "85"
+    assert hass.states.get("sensor.driveway_events_past_hour") is None
+
+
+async def test_restart_button_restarts_zoneminder(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    api = setup_integration.runtime_data.coordinator.api
+    with patch.object(api, "server_control") as control:
+        await hass.services.async_call(
+            "button",
+            "press",
+            {ATTR_ENTITY_ID: "button.zoneminder_test_restart"},
+            blocking=True,
+        )
+    control.assert_awaited_once_with("restart")
+
+
+async def test_start_and_stop_buttons_are_off_by_default(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    """Stopping ZoneMinder stops every camera recording, so it's opt-in."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    for name in ("start", "stop"):
+        entity = registry.async_get(f"button.zoneminder_test_{name}")
+        assert entity is not None
+        assert entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+
+
+@pytest.mark.parametrize(
+    ("service", "data", "expected"),
+    [
+        ("ptz", {"direction": "up_left"}, ("up-left", {})),
+        ("ptz", {"command": "down_right"}, ("down-right", {})),
+        ("ptz_preset", {"preset": 0}, ("home", {})),
+        ("ptz_preset", {"preset": 2}, ("preset", {"preset": 2})),
+    ],
+)
+async def test_ptz_accepts_ha_zoneminder_calls(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    service: str,
+    data: dict[str, Any],
+    expected: tuple[str, dict[str, Any]],
+) -> None:
+    """Automations written for nabbi/ha-zoneminder's PTZ services still work."""
+    api = setup_integration.runtime_data.coordinator.api
+    with patch.object(api, "ptz") as ptz:
+        await hass.services.async_call(
+            DOMAIN,
+            service,
+            {ATTR_ENTITY_ID: "camera.gate", **data},
+            blocking=True,
+        )
+    command, kwargs = expected
+    ptz.assert_awaited_once_with(3, command, **kwargs)

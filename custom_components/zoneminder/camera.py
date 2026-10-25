@@ -6,12 +6,23 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import aiohttp
+from aiohttp import web
 from aiozoneminder import Monitor
 from aiozoneminder.const import BACKEND_LEGACY, STREAM_TYPE_MJPEG
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.aiohttp_client import (
+    async_aiohttp_proxy_web,
+    async_get_clientsession,
+)
+from homeassistant.helpers.entity_platform import (
+    AddConfigEntryEntitiesCallback,
+    AddEntitiesCallback,
+)
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from .const import CONF_VERIFY_SSL
 from .coordinator import ZoneMinderDataUpdateCoordinator
 from .data import ZoneMinderConfigEntry
 from .entity import ZoneMinderMonitorEntity
@@ -19,6 +30,19 @@ from .exceptions import ha_errors
 from .http import async_proxy_url
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    async_add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
+    """Accept the old `camera: - platform: zoneminder` YAML.
+
+    Its settings are imported with the server (see yaml_import.py); this
+    only stops Home Assistant reporting the platform as unsupported.
+    """
 
 
 async def async_setup_entry(
@@ -138,6 +162,25 @@ class ZoneMinderCamera(ZoneMinderMonitorEntity, Camera):
             attrs["last_event_alarm_frames"] = event.alarm_frames
 
         return attrs
+
+    async def handle_async_mjpeg_stream(
+        self, request: web.Request
+    ) -> web.StreamResponse | None:
+        """Relay ZoneMinder's MJPEG, for monitors with no better stream.
+
+        Home Assistant fetches it, so the ZoneMinder token in the URL never
+        reaches the browser.
+        """
+        if self._stream_type != STREAM_TYPE_MJPEG:
+            return await super().handle_async_mjpeg_stream(request)
+        session = async_get_clientsession(
+            self.hass, verify_ssl=self.entry.data.get(CONF_VERIFY_SSL, True)
+        )
+        stream = session.get(
+            self.coordinator.api.get_stream_url(self._monitor_id),
+            timeout=aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=30),
+        )
+        return await async_aiohttp_proxy_web(self.hass, request, stream)
 
     async def async_refresh_providers(self, *, write_state: bool = True) -> None:
         """Use ZoneMinder's own WebRTC when the server offers WHEP.

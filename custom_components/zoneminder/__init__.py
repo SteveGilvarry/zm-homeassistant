@@ -7,7 +7,6 @@ import logging
 
 from aiozoneminder import ZMApiError, ZMAuthenticationError, ZMConnectionError
 from aiozoneminder.const import BACKEND_V3, CONFIG_MQTT_TOPIC_PREFIX
-from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -17,12 +16,11 @@ from homeassistant.const import (
     CONF_VERIFY_SSL,
     Platform,
 )
-from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, HomeAssistant
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import (
     config_validation as cv,
     device_registry as dr,
-    issue_registry as ir,
 )
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
@@ -33,6 +31,7 @@ from .const import (
     CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC,
     CONF_NOTIFY_KEY,
+    CONF_ZMS_PATH,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
 )
@@ -42,12 +41,14 @@ from .entity import monitor_device_id, server_device_id, server_device_info
 from .event_watcher import ZoneMinderEventWatcher
 from .frontend import async_register_card
 from .http import async_register_proxy, generate_proxy_secret
+from .migrate import async_migrate
 from .mqtt import ZoneMinderMQTTListener
 from .notify_media import async_register_event_media, generate_notify_key
 from .repairs import async_check_issues
 from .services import async_setup_services
 from .webrtc import ZoneMinderWebRTCProvider
 from .websocket_api import async_setup_websocket
+from .yaml_import import async_import_server, platform_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ CONFIG_SCHEMA = vol.Schema(
                     {
                         vol.Required(CONF_HOST): cv.string,
                         vol.Optional(CONF_PATH, default="/zm/"): cv.string,
-                        vol.Optional("path_zms"): cv.string,
+                        vol.Optional(CONF_ZMS_PATH): cv.string,
                         vol.Optional(CONF_SSL, default=False): cv.boolean,
                         vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
                         vol.Optional(CONF_USERNAME): cv.string,
@@ -83,32 +84,24 @@ PLATFORMS: list[Platform] = [
     Platform.IMAGE,
     Platform.SELECT,
     Platform.SENSOR,
+    Platform.SWITCH,
 ]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Import servers from the old core integration's YAML, once."""
-    for server in config.get(DOMAIN, []):
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": SOURCE_IMPORT}, data=server
-            )
-        )
-    if DOMAIN in config:
-        ir.async_create_issue(
-            hass,
-            HOMEASSISTANT_DOMAIN,
-            f"deprecated_yaml_{DOMAIN}",
-            is_fixable=False,
-            issue_domain=DOMAIN,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="deprecated_yaml",
-            translation_placeholders={
-                "domain": DOMAIN,
-                "integration_title": "ZoneMinder",
-            },
-        )
+    """Import servers, and their platform settings, from the core YAML."""
+    if servers := config.get(DOMAIN):
+        options = platform_options(config)
+        for server in servers:
+            hass.async_create_task(async_import_server(hass, server, options))
     return True
+
+
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: ZoneMinderConfigEntry
+) -> bool:
+    """Migrate an entry, adopting ones made by nabbi/ha-zoneminder."""
+    return await async_migrate(hass, entry)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -> bool:
@@ -119,7 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -
         )
 
     session = async_get_clientsession(hass)
-    api = client_from_entry_data(entry.data, session)
+    api = client_from_entry_data(entry.data, session, entry.options)
 
     try:
         await api.authenticate()

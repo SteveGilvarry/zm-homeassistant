@@ -43,14 +43,16 @@ up from the UI.
 
 ## Requirements
 
-- Home Assistant 2025.2 or newer
+- Home Assistant 2025.3 or newer
 - ZoneMinder with either [ZoneMinder API v3](https://github.com/SteveGilvarry/zm-api)
-  (recommended) or its built-in API v2 (ZoneMinder 1.36+)
+  (recommended) or its built-in API v2 (ZoneMinder 1.36+). API v3 needs ZoneMinder
+  1.39, the development series, because it runs on 1.39's database. On the stable 1.38
+  release, or legacy 1.36, use API v2.
 - An internal Home Assistant URL set under Settings > System > Network, so live video can
   be proxied
 - Optional: an MQTT broker, for events in under a second
 
-Home Assistant installs [aiozoneminder](https://github.com/SteveGilvarry/aiozoneminder),
+Home Assistant installs [aiozoneminder](https://github.com/ZoneMinder/aiozoneminder),
 the client library this integration uses, automatically.
 
 ## Installation
@@ -88,14 +90,15 @@ Then restart Home Assistant.
 |                | API v3 (default)                       | API v2 (built in)                   |
 | -------------- | -------------------------------------- | ----------------------------------- |
 | Talks to       | [ZoneMinder API v3](https://github.com/SteveGilvarry/zm-api) at `/api/v3` | ZoneMinder's CakePHP API at `/zm/api` |
-| Auth           | JWT bearer, refreshed automatically    | Query-parameter token               |
+| Auth           | JWT bearer, refreshed automatically; always needs a ZoneMinder user | Query-parameter token, or none when ZoneMinder's authentication is off |
 | Default port   | 8080                                   | your ZoneMinder web port            |
-| Live video     | WebRTC (WHEP), RTSP or HLS             | go2rtc RTSP, or MJPEG stills        |
+| ZoneMinder     | 1.39 (development)                     | 1.36, 1.38 and 1.39                 |
+| Live video     | WebRTC (WHEP), RTSP or HLS             | go2rtc RTSP, or MJPEG               |
 | Recordings     | Yes: media browser, card, notifications | Not yet                            |
 | Run states     | Switch and save                        | Switch                              |
-| Server sensors | Storage, daemons, capture stats        | Version only                        |
+| Server sensors | Storage, daemons, capture stats        | Version, daemons, capture stats     |
 
-API v3 gives you live video, recordings, storage and capture statistics that the built-in
+API v3 gives you low-latency live video, recordings and storage figures that the built-in
 API doesn't expose. Pick API v2 if you run a stock install and want to stay that way.
 
 ## Real-time events
@@ -160,7 +163,14 @@ On API v3, each camera picks the best route the server offers:
 Set `ZM_GO2RTC_PATH` in ZoneMinder's options. The integration reads the stream list from
 go2rtc and matches monitors to it, rather than guessing that stream names match monitor
 ids, and it checks whether go2rtc's RTSP server is actually running before handing Home
-Assistant an `rtsp://` URL. When RTSP is switched off, cameras fall back to stills.
+Assistant an `rtsp://` URL.
+
+### MJPEG, on API v2 without go2rtc
+
+Without go2rtc, cameras show ZoneMinder's own MJPEG stream, relayed through Home
+Assistant so the ZoneMinder token never reaches the browser. MJPEG is heavy at full
+resolution, so the integration's options can shrink it (**Live view size**, as a
+percentage) and cap its frame rate, which helps when watching away from home.
 
 ## Recordings
 
@@ -178,6 +188,36 @@ presence-based arming automations want.
 To create one, set the cameras up the way you want, then call
 `zoneminder.save_run_state` with a name. That needs API v3; on API v2, save run states in
 ZoneMinder's web interface.
+
+## Moving from the core integration or ha-zoneminder
+
+This integration uses the same `zoneminder` domain, so it replaces either one.
+
+**From the core integration's YAML**, restart Home Assistant once with your existing
+YAML in place. Each server is imported, along with the settings from its platform
+blocks:
+
+| Old YAML                                    | Becomes                                          |
+| ------------------------------------------- | ------------------------------------------------ |
+| `zoneminder:` host, path, ssl, path_zms, login | The server's connection, on API v2            |
+| `sensor:` `monitored_conditions`            | **Event counts** option: past hour, day, week, month, all time |
+| `switch:` `command_on`, `command_off`       | A per-camera switch between those two modes      |
+| `scan_interval` on any platform             | The polling interval option                      |
+| `camera:`, `binary_sensor:`                 | Nothing to carry over                            |
+| `include_archived`, `entity_namespace`      | Not supported, so ignored with a warning in the log |
+
+Once the import works, Home Assistant asks you to remove the YAML. If ZoneMinder can't
+be reached at that start, it says so instead and tries again at the next restart.
+`zoneminder.set_run_state` still accepts core's `id` (the YAML host), so existing
+automations keep working. Switch to API v3 later with **Reconfigure**.
+
+ZoneMinder's event counts are rolling: "past day" is the last 24 hours, not since
+midnight.
+
+**From nabbi/ha-zoneminder**, swap the HACS repository and restart. Its config entries are
+converted in place, and its entities keep their entity ids and history. Its `ptz`
+calls with `direction` and its `ptz_preset` action work unchanged. Its force alarm switch has
+no direct equivalent: use the **Trigger alarm** and **Cancel alarm** buttons instead.
 
 ## Card
 
@@ -214,8 +254,14 @@ The card's source is in [`card/`](card/README.md).
 | `zoneminder.trigger_event`     | Forces a monitor into alarm, starting a recording       |
 | `zoneminder.cancel_event`      | Clears a forced alarm                                   |
 | `zoneminder.ptz`               | Pan, tilt, zoom, focus, home or go to a preset          |
-| `zoneminder.set_monitor_state` | Changes capturing, analysing, recording or decoding     |
+| `zoneminder.ptz_preset`        | Goes to a numbered preset, or home with preset 0        |
+| `zoneminder.set_monitor_state` | Changes capturing, analysing, recording or decoding, or sets an old mode such as Modect |
 | `zoneminder.save_run_state`    | Saves every camera's current modes as a named run state |
+| `zoneminder.set_run_state`     | Switches run state; also `start`, `stop` and `restart`   |
+
+The server device also has a **Restart** button. **Start** and **Stop** buttons are
+there too but disabled, because stopping ZoneMinder stops every camera recording. All
+three need a ZoneMinder user with System edit rights.
 
 ## Notifications
 
@@ -242,8 +288,9 @@ issue.
 | Motion takes a few seconds     | Normal without MQTT; set MQTT up for under a second              |
 | WebRTC doesn't connect         | ZoneMinder advertises an address the browser can't reach; set `nat_ips` |
 | Cameras show but do not play   | No internal URL set under Settings > System > Network            |
-| No recordings in Media         | API v2, which doesn't serve them                                 |
+| Recordings in Media won't play | API v2, which doesn't serve them                                 |
 | Device links go nowhere        | Set the ZoneMinder web address in the integration's options      |
+| API v3 says "Invalid username or password" on a server without logins | ZoneMinder's authentication (`ZM_OPT_USE_AUTH`) is off. API v3 always needs a user: turn it on (Options > System; on by default only for new installs from ZoneMinder 1.39.41) and create one, or pick API v2 and type any username and password |
 
 ## Development
 
@@ -253,6 +300,26 @@ pip install -r requirements_test.txt av PyTurboJPEG ha-ffmpeg
 pytest
 ruff check custom_components/zoneminder tests
 ```
+
+### Live tests
+
+`tests/live` runs the integration against a real ZoneMinder server instead of
+mocks, once per API you point it at. It is skipped unless a server is set:
+
+```bash
+export ZM_LIVE_V3_URL=http://zm.local       # zm-api (API v3), and/or
+export ZM_LIVE_V2_URL=http://zm.local/zm    # the built-in API v2
+export ZM_LIVE_USER=admin ZM_LIVE_PASSWORD=secret
+pytest tests/live
+```
+
+Optional: `ZM_LIVE_MONITOR` (id or name of the monitor to use),
+`ZM_LIVE_RESTRICTED_USER`/`ZM_LIVE_RESTRICTED_PASSWORD` (a user without System
+access), `ZM_LIVE_TIMEZONE` (the server's, default UTC). By default the tests
+only read. `ZM_LIVE_WRITE=1` adds the ones that change modes, trigger an
+alarm, send PTZ stop and switch run states; each puts back what it changed,
+but use a server you can test on. What each test checks is in
+`tests/live/test_live.py`.
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the local ZoneMinder and MQTT setup,
 and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Contributions

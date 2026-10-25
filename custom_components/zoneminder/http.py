@@ -20,7 +20,7 @@ import logging
 import re
 import secrets
 from typing import TYPE_CHECKING
-from urllib.parse import quote, unquote, urljoin
+from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -138,7 +138,11 @@ class ZoneMinderMediaProxyView(HomeAssistantView):
             coordinator,
             upstream_path,
             rewrite=lambda body: _rewrite_playlist(
-                body, upstream_path, entry_id, secret
+                body,
+                upstream_path,
+                entry_id,
+                secret,
+                base_path=urlsplit(coordinator.api.host).path,
             ),
         )
 
@@ -188,13 +192,20 @@ async def async_stream_upstream(
                     content_type="application/vnd.apple.mpegurl",
                 )
 
+            headers = {
+                name: value
+                for name in _PASSTHROUGH_HEADERS
+                if (value := upstream_response.headers.get(name))
+            }
+            # The length lets players (Safari and other AVPlayer-based ones are
+            # strict about ranges) see a sized body instead of a chunked one.
+            # aiohttp decodes compressed bodies, so a compressed length is
+            # never passed on.
+            length = upstream_response.headers.get("Content-Length")
+            if length and "Content-Encoding" not in upstream_response.headers:
+                headers["Content-Length"] = length
             response = web.StreamResponse(
-                status=upstream_response.status,
-                headers={
-                    name: value
-                    for name in _PASSTHROUGH_HEADERS
-                    if (value := upstream_response.headers.get(name))
-                },
+                status=upstream_response.status, headers=headers
             )
             await response.prepare(request)
             async for chunk in upstream_response.content.iter_chunked(_CHUNK):
@@ -210,21 +221,28 @@ async def async_stream_upstream(
         return web.Response(status=HTTPStatus.BAD_GATEWAY)
 
 
-def _rewrite_playlist(body: str, upstream_path: str, entry_id: str, secret: str) -> str:
+def _rewrite_playlist(
+    body: str, upstream_path: str, entry_id: str, secret: str, base_path: str = ""
+) -> str:
     """Point every URI in an HLS playlist back through the proxy.
 
     Playlist URIs are a mix of absolute paths (``/api/v3/live/1/hls/live.m3u8``)
     and names relative to the playlist (``segment_00000.m4s``). Both are
     resolved against the upstream playlist path before being re-emitted, so the
-    whole chain stays authenticated.
+    whole chain stays authenticated. ``base_path`` is the path ZoneMinder is
+    served under (``zm`` for ``http://host/zm``): zm-api behind such a proxy
+    path writes absolute paths that start with it, and it is taken off again.
     """
     base = f"http://zoneminder.invalid/{upstream_path}"
+    prefix = base_path.strip("/")
 
     def to_proxy(uri: str) -> str:
         if uri.startswith(("http://", "https://", "data:")):
             return uri
         resolved = urljoin(base, uri)
         target = resolved.split("http://zoneminder.invalid/", 1)[-1]
+        if prefix and target.startswith(f"{prefix}/"):
+            target = target[len(prefix) + 1 :]
         return async_proxy_path(entry_id, secret, target)
 
     lines = []
