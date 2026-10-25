@@ -20,7 +20,7 @@ import asyncio
 import os
 from pathlib import Path
 import sys
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 import aiohttp
 from aiohttp import web
@@ -112,7 +112,13 @@ async def check_stream(client, monitor_id: int) -> bool:
             if response.status >= 400:
                 return web.Response(status=response.status)
             if upstream.endswith(".m3u8"):
-                body = _rewrite_playlist(await response.text(), upstream, ENTRY, SECRET)
+                body = _rewrite_playlist(
+                    await response.text(),
+                    upstream,
+                    ENTRY,
+                    SECRET,
+                    base_path=urlsplit(client.host).path,
+                )
                 return web.Response(
                     body=body.encode(), content_type="application/vnd.apple.mpegurl"
                 )
