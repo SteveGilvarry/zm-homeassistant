@@ -34,6 +34,7 @@ from .const import (
     CONF_EVENT_PERIODS,
     CONF_FUNCTION_OFF,
     CONF_FUNCTION_ON,
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_MQTT_TOPIC,
     CONF_SCAN_INTERVAL,
@@ -43,6 +44,7 @@ from .const import (
     CONF_WEB_URL,
     CONF_ZMS_PATH,
     DEFAULT_EVENT_PERIODS,
+    DEFAULT_INCLUDE_ARCHIVED,
     DOMAIN,
     EVENT_PERIODS,
     MAX_SCAN_INTERVAL,
@@ -93,6 +95,7 @@ _IMPORTED_OPTIONS = (
     CONF_EVENT_PERIODS,
     CONF_FUNCTION_ON,
     CONF_FUNCTION_OFF,
+    CONF_INCLUDE_ARCHIVED,
     CONF_SCAN_INTERVAL,
 )
 
@@ -367,6 +370,12 @@ class ZoneMinderOptionsFlow(OptionsFlow):
                 translation_key=CONF_EVENT_PERIODS,
             )
         )
+        schema[
+            vol.Optional(
+                CONF_INCLUDE_ARCHIVED,
+                default=options.get(CONF_INCLUDE_ARCHIVED, DEFAULT_INCLUDE_ARCHIVED),
+            )
+        ] = BooleanSelector()
         if not is_v3:
             # Only API v2 streams MJPEG, which these shrink and slow down.
             schema[

@@ -12,6 +12,7 @@ from custom_components.zoneminder.const import (
     CONF_EVENT_PERIODS,
     CONF_FUNCTION_OFF,
     CONF_FUNCTION_ON,
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_STREAM_MAXFPS,
     CONF_STREAM_SCALE,
@@ -78,6 +79,7 @@ async def test_nabbi_entry_becomes_an_api_v2_entry(hass: HomeAssistant) -> None:
         CONF_EVENT_PERIODS: ["all", "day"],
         CONF_FUNCTION_ON: "Modect",
         CONF_FUNCTION_OFF: "Monitor",
+        CONF_INCLUDE_ARCHIVED: False,
         CONF_STREAM_SCALE: 50,
         CONF_STREAM_MAXFPS: 5.0,
     }

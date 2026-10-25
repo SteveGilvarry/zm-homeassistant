@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.zoneminder.const import (
     CONF_BACKEND,
     CONF_EVENT_PERIODS,
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
     DOMAIN,
@@ -327,3 +328,14 @@ async def test_options_flow_sets_event_count_periods(
     )
     await hass.async_block_till_done()
     assert setup_integration.options[CONF_EVENT_PERIODS] == ["day", "week"]
+
+
+async def test_options_flow_sets_include_archived(
+    hass: HomeAssistant, setup_integration: MockConfigEntry
+) -> None:
+    result = await hass.config_entries.options.async_init(setup_integration.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MQTT_ENABLED: False, CONF_INCLUDE_ARCHIVED: False}
+    )
+    await hass.async_block_till_done()
+    assert setup_integration.options[CONF_INCLUDE_ARCHIVED] is False

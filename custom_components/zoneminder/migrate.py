@@ -23,6 +23,7 @@ from .const import (
     CONF_EVENT_PERIODS,
     CONF_FUNCTION_OFF,
     CONF_FUNCTION_ON,
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_STREAM_MAXFPS,
     CONF_STREAM_SCALE,
@@ -39,6 +40,7 @@ CURRENT_MINOR_VERSION = 2
 
 #: nabbi's option names, and ours.
 _OPTIONS = {
+    "include_archived": CONF_INCLUDE_ARCHIVED,
     "monitored_conditions": CONF_EVENT_PERIODS,
     "command_on": CONF_FUNCTION_ON,
     "command_off": CONF_FUNCTION_OFF,
@@ -105,7 +107,8 @@ def _adopt_nabbi_entry(hass: HomeAssistant, entry: ZoneMinderConfigEntry) -> Non
     if zms_path := old.get(CONF_ZMS_PATH):
         data[CONF_ZMS_PATH] = zms_path
 
-    options: dict[str, Any] = {CONF_MQTT_ENABLED: True}
+    # ha-zoneminder left archived events out of its counts unless asked.
+    options: dict[str, Any] = {CONF_MQTT_ENABLED: True, CONF_INCLUDE_ARCHIVED: False}
     for theirs, ours in _OPTIONS.items():
         if entry.options.get(theirs) not in (None, ""):
             options[ours] = entry.options[theirs]

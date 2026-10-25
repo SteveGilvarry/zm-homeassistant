@@ -66,6 +66,7 @@
           "scan_interval": "Polling interval",
           "web_url": "ZoneMinder web address",
           "event_periods": "Event counts",
+          "include_archived": "Count archived events",
           "stream_scale": "Live view size",
           "stream_maxfps": "Live view frame rate limit"
         },
@@ -74,6 +75,7 @@
           "scan_interval": "Leave blank to poll every 5 minutes with MQTT on, or every 30 seconds without it.",
           "web_url": "Where the ZoneMinder web interface lives, used for the links on each device. API v3 usually runs on a different port.",
           "event_periods": "Which event counts each camera gets a sensor for. ZoneMinder counts over a rolling window, so \"day\" means the last 24 hours.",
+          "include_archived": "Off leaves archived events out of the counts, as ZoneMinder's console does.",
           "stream_scale": "Shrink the MJPEG live view to this percentage of the camera's resolution, to save bandwidth when watching remotely. Leave blank for full size.",
           "stream_maxfps": "Cap the MJPEG live view's frame rate. Leave blank for up to 30 frames a second."
         }

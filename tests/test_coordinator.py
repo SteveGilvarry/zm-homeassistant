@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.zoneminder.const import (
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
@@ -138,3 +139,24 @@ async def test_interval_follows_the_options(
     ):
         hass.config_entries.async_update_entry(config_entry, options=options)
         assert _resolve_interval(config_entry) == expected
+
+
+async def test_event_counts_leave_archived_out_when_asked(
+    hass: HomeAssistant, zm_api: aioresponses, config_entry: MockConfigEntry
+) -> None:
+    """With include_archived off, the client is asked for counts without them."""
+    config_entry = MockConfigEntry(
+        domain=config_entry.domain,
+        data=config_entry.data,
+        options={**config_entry.options, CONF_INCLUDE_ARCHIVED: False},
+    )
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    archived = [url for url in _requested_event_urls(zm_api) if "archived=true" in url]
+    assert archived, "no request for archived events"
+    summary = config_entry.runtime_data.coordinator.data.summaries[1]
+    # Fixture: 126 events, one archived; the archived event is older than a month.
+    assert summary.total_events == 125
+    assert summary.day_events == 85

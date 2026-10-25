@@ -16,6 +16,7 @@ from custom_components.zoneminder.const import (
     CONF_EVENT_PERIODS,
     CONF_FUNCTION_OFF,
     CONF_FUNCTION_ON,
+    CONF_INCLUDE_ARCHIVED,
     CONF_MQTT_ENABLED,
     CONF_SCAN_INTERVAL,
     DOMAIN,
@@ -69,6 +70,7 @@ async def test_platform_settings_become_options(hass: HomeAssistant) -> None:
         CONF_EVENT_PERIODS: ["hour", "day", "all"],
         CONF_FUNCTION_ON: "Modect",
         CONF_FUNCTION_OFF: "Monitor",
+        CONF_INCLUDE_ARCHIVED: True,
         CONF_SCAN_INTERVAL: 60,
     }
 
@@ -81,6 +83,17 @@ async def test_sensor_platform_defaults_to_all_events(hass: HomeAssistant) -> No
     (entry,) = hass.config_entries.async_entries(DOMAIN)
     assert entry.options[CONF_EVENT_PERIODS] == ["all"]
     assert CONF_FUNCTION_ON not in entry.options
+    # Core's sensors left archived events out unless include_archived was set.
+    assert entry.options[CONF_INCLUDE_ARCHIVED] is False
+
+
+async def test_no_sensor_platform_leaves_archived_to_the_default(
+    hass: HomeAssistant,
+) -> None:
+    with _validate(), _skip_setup():
+        await _setup(hass, {DOMAIN: [SERVER], "camera": [{"platform": DOMAIN}]})
+    (entry,) = hass.config_entries.async_entries(DOMAIN)
+    assert CONF_INCLUDE_ARCHIVED not in entry.options
 
 
 @pytest.mark.parametrize(
@@ -102,9 +115,16 @@ async def test_unsupported_keys_are_reported(hass: HomeAssistant) -> None:
         _skip_setup(),
         patch("custom_components.zoneminder.yaml_import._LOGGER") as logger,
     ):
-        await _setup(hass, CORE_YAML)
+        await _setup(
+            hass,
+            {
+                **CORE_YAML,
+                "camera": [{"platform": DOMAIN, "entity_namespace": "zm"}],
+            },
+        )
     warnings = " ".join(str(call.args) for call in logger.warning.call_args_list)
-    assert "include_archived" in warnings
+    assert "entity_namespace" in warnings
+    assert "include_archived" not in warnings
 
 
 async def test_platform_yaml_raises_no_platform_errors(hass: HomeAssistant) -> None:
@@ -158,5 +178,6 @@ async def test_already_imported_entry_gains_platform_options(
         CONF_EVENT_PERIODS: ["hour", "day", "all"],
         CONF_FUNCTION_ON: "Modect",
         CONF_FUNCTION_OFF: "Monitor",
+        CONF_INCLUDE_ARCHIVED: True,
     }
     assert ("homeassistant", f"deprecated_yaml_{DOMAIN}") in ir.async_get(hass).issues

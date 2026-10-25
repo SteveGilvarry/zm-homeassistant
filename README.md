@@ -201,10 +201,11 @@ blocks:
 | ------------------------------------------- | ------------------------------------------------ |
 | `zoneminder:` host, path, ssl, path_zms, login | The server's connection, on API v2            |
 | `sensor:` `monitored_conditions`            | **Event counts** option: past hour, day, week, month, all time |
+| `sensor:` `include_archived`                | **Count archived events** option, off unless it was set |
 | `switch:` `command_on`, `command_off`       | A per-camera switch between those two modes      |
 | `scan_interval` on any platform             | The polling interval option                      |
 | `camera:`, `binary_sensor:`                 | Nothing to carry over                            |
-| `include_archived`, `entity_namespace`      | Not supported, so ignored with a warning in the log |
+| `entity_namespace`                          | Not supported, so ignored with a warning in the log |
 
 Once the import works, Home Assistant asks you to remove the YAML. If ZoneMinder can't
 be reached at that start, it says so instead and tries again at the next restart.
@@ -212,7 +213,8 @@ be reached at that start, it says so instead and tries again at the next restart
 automations keep working. Switch to API v3 later with **Reconfigure**.
 
 ZoneMinder's event counts are rolling: "past day" is the last 24 hours, not since
-midnight.
+midnight. They include archived events unless **Count archived events** is off; setups
+moved from the core integration or ha-zoneminder keep the choice they had there.
 
 **From nabbi/ha-zoneminder**, swap the HACS repository and restart. Its config entries are
 converted in place, and its entities keep their entity ids and history. Its `ptz`
