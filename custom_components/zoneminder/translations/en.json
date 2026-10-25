@@ -252,7 +252,7 @@
       "fields": {
         "cause": {
           "name": "Cause",
-          "description": "Text stored against the event, so you can tell later what set it off."
+          "description": "Text stored against the event, so you can tell later what set it off. Up to 31 bytes. On API v2, ZoneMinder keeps letters, digits, spaces and plain punctuation, and versions without zmu --cause store \"Forced Web\" instead."
         }
       }
     },
