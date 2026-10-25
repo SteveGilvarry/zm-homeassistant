@@ -46,6 +46,11 @@ class ZoneMinderWebRTCProvider(CameraWebRTCProvider):
         self.api = api
         #: HA session id -> zm-api session URL.
         self._sessions: dict[str, str] = {}
+        #: Browser candidates that arrive while zm-api is still answering the
+        #: offer, held until the session URL is known.
+        self._early: dict[str, list[RTCIceCandidateInit]] = {}
+        #: Sessions the viewer closed before the answer came back.
+        self._closed_early: set[str] = set()
 
     @property
     def domain(self) -> str:
@@ -70,11 +75,20 @@ class ZoneMinderWebRTCProvider(CameraWebRTCProvider):
         _LOGGER.debug(
             "WebRTC offer for monitor %d (session %s)", monitor_id, session_id
         )
+        self._early[session_id] = []
         try:
             answer, location = await self.api.async_whep_offer(monitor_id, offer_sdp)
         except (ZMApiError, ZMConnectionError) as err:
+            self._early.pop(session_id, None)
+            self._closed_early.discard(session_id)
             _LOGGER.debug("WebRTC offer for monitor %d failed: %s", monitor_id, err)
             send_message(WebRTCError("webrtc_offer_failed", str(err)))
+            return
+        early = self._early.pop(session_id, [])
+        if session_id in self._closed_early:
+            # The viewer left while zm-api was answering: end its session too.
+            self._closed_early.discard(session_id)
+            await self.api.async_whep_close(location)
             return
         _LOGGER.debug(
             "WebRTC answer for monitor %d in %.2fs",
@@ -83,12 +97,18 @@ class ZoneMinderWebRTCProvider(CameraWebRTCProvider):
         )
         self._sessions[session_id] = location
         send_message(WebRTCAnswer(answer))
+        for candidate in early:
+            await self.async_on_webrtc_candidate(session_id, candidate)
 
     async def async_on_webrtc_candidate(
         self, session_id: str, candidate: RTCIceCandidateInit
     ) -> None:
         """Trickle a browser candidate to zm-api."""
         if (location := self._sessions.get(session_id)) is None:
+            # The browser trickles straight after its offer; keep candidates
+            # until zm-api's answer gives the session URL.
+            if session_id in self._early:
+                self._early[session_id].append(candidate)
             return
         try:
             await self.api.async_whep_candidate(
@@ -102,6 +122,8 @@ class ZoneMinderWebRTCProvider(CameraWebRTCProvider):
     def async_close_session(self, session_id: str) -> None:
         """Tell zm-api the viewer has gone."""
         if (location := self._sessions.pop(session_id, None)) is None:
+            if session_id in self._early:
+                self._closed_early.add(session_id)
             return
         self.hass.async_create_background_task(
             self.api.async_whep_close(location), name="zoneminder webrtc close"
